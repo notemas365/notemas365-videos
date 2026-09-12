@@ -1,0 +1,42 @@
+name: Actualizar video del día
+
+on:
+  schedule:
+    # 05:10 UTC = 12:10 AM hora Colombia (UTC-5, todo el año, sin horario de verano)
+    - cron: "10 5 * * *"
+  workflow_dispatch: {} # permite correrlo a mano desde la pestaña "Actions" de GitHub, para probar
+
+jobs:
+  actualizar-y-subir:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Consultar el video de hoy e inyectarlo en index.html
+        env:
+          PRODUCCION_PASSWORD: ${{ secrets.PRODUCCION_PASSWORD }}
+        run: node actualizar-video.js
+
+      - name: Preparar carpeta a subir (solo index.html, nunca los videos)
+        run: |
+          mkdir -p a_subir
+          cp index.html a_subir/index.html
+
+      - name: Subir index.html a Hostinger por FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./a_subir/
+          server-dir: ./
+          # Nunca borra nada que ya esté en el servidor — solo sube/reemplaza
+          # el index.html. Así produccion.html, archivo.html, manifest.json,
+          # etc. quedan intactos aunque no estén en este repositorio.
+          dangerous-clean-slate: false
