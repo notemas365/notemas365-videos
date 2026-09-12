@@ -640,6 +640,15 @@
   @media (prefers-reduced-motion: reduce){
     .verse-video{animation:none;}
   }
+
+  /* En modo oscuro, estos elementos usaban el azul de marca como color de
+     texto/borde — que es un azul MUY oscuro, y contra un fondo también
+     oscuro se vuelve casi invisible. Se cambian al dorado (que ya se ve
+     bien en dark mode en el resto del sitio) solo en este tema. */
+  html[data-tema="oscuro"] .nav-icon-btn{color:var(--dorado-texto);}
+  html[data-tema="oscuro"] .archivo-toggle{border-color:var(--dorado-texto); color:var(--dorado-texto);}
+  html[data-tema="oscuro"] .archivo-toggle:hover{background:var(--dorado-texto); color:var(--azul);}
+  html[data-tema="oscuro"] .link-calendario{color:var(--dorado-texto);}
 </style>
 
 <!-- Google Analytics (GA4) — conectado a la propiedad "No Temas 365". -->
