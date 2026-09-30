@@ -71,6 +71,20 @@
   .dia-fecha{font-weight:700; text-transform:capitalize; margin-bottom:2px;}
   .dia-ref{color:var(--dorado-texto); font-weight:600; margin-bottom:10px;}
   .dia-versiculo{font-size:14px; color:#333; margin-bottom:14px; line-height:1.4;}
+  .reflexion-edit{margin-bottom:14px;}
+  .reflexion-label{display:block; font-size:12px; font-weight:700; color:#888; margin-bottom:4px; text-transform:uppercase; letter-spacing:.03em;}
+  .reflexion-textarea{
+    width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px;
+    font-size:14px; font-family:inherit; color:#333; resize:vertical;
+  }
+  .reflexion-acciones{display:flex; align-items:center; gap:10px; margin-top:6px;}
+  .guardar-reflexion-btn{
+    background:var(--azul); color:#fff; border:none;
+    padding:9px 14px; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;
+  }
+  .msg-reflexion{font-size:13px;}
+  .msg-reflexion.ok{color:var(--ok);}
+  .msg-reflexion.error{color:var(--error);}
   .preview-wrap{position:relative; margin-bottom:12px;}
   .preview-wrap img.preview,.preview-wrap video.preview-video{
     width:100%; height:260px; object-fit:cover; border-radius:10px;
@@ -219,6 +233,13 @@
     }
   }
 
+  function escapeHtml(texto) {
+    return String(texto)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
   function formatearISO(fecha) {
     const y = fecha.getFullYear(), m = String(fecha.getMonth() + 1).padStart(2, "0"), d = String(fecha.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
@@ -315,6 +336,14 @@
       <div class="dia-fecha">${fechaCap}</div>
       <div class="dia-ref">${dia.referencia}</div>
       <div class="dia-versiculo">${dia.versiculo}</div>
+      <div class="reflexion-edit">
+        <label class="reflexion-label">Reflexión del día</label>
+        <textarea class="reflexion-textarea" rows="4">${escapeHtml(dia.reflexion || "")}</textarea>
+        <div class="reflexion-acciones">
+          <button type="button" class="guardar-reflexion-btn">Guardar reflexión</button>
+          <span class="msg-reflexion"></span>
+        </div>
+      </div>
       <div class="preview-wrap">
         ${previewHTML}
         <video class="preview-video" muted loop playsinline style="display:none;"></video>
@@ -388,6 +417,25 @@
       const url = input.value.trim();
       if (url) usarVideoPorUrl(url, dia.fila, dia.fechaISO);
     });
+    detalle.querySelector(".guardar-reflexion-btn").addEventListener("click", () => {
+      const texto = detalle.querySelector(".reflexion-textarea").value;
+      guardarReflexion(dia.fila, texto);
+    });
+  }
+
+  async function guardarReflexion(fila, reflexion) {
+    const msg = document.querySelector(".msg-reflexion");
+    if (msg) { msg.textContent = "Guardando…"; msg.className = "msg-reflexion"; }
+    try {
+      const datos = await peticionConReintento(URL_BACKEND, {
+        method: "POST",
+        body: JSON.stringify({ password: PASSWORD, accion: "guardarReflexion", fila, reflexion }),
+      });
+      if (!datos.ok) throw new Error(datos.error || "Error al guardar la reflexión");
+      if (msg) { msg.textContent = "¡Guardado!"; msg.className = "msg-reflexion ok"; }
+    } catch (e) {
+      if (msg) { msg.textContent = "No se pudo guardar: " + e.message; msg.className = "msg-reflexion error"; }
+    }
   }
 
   function mensajeDetalle(texto, tipo) {
