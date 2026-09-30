@@ -112,6 +112,9 @@
   }
   .msg{font-size:13px; margin-left:4px; width:100%;}
   .msg.ok{color:var(--ok);}
+  .pagina-pexels{width:100%; margin-bottom:6px;}
+  .pagina-pexels a{color:var(--dorado-texto); font-size:13px; font-weight:600; text-decoration:none;}
+  .pagina-pexels a:hover{text-decoration:underline;}
   .video-url{display:flex; gap:8px; width:100%; margin-top:2px;}
   .video-url input{
     flex:1; padding:8px 10px; border:1px solid #ddd; border-radius:8px;
@@ -318,10 +321,14 @@
         ${dia.videoActual ? '<button class="play-btn" title="Ver en movimiento">▶</button>' : ''}
       </div>
       <div class="estado">${etiquetaOrigen}${dia.videoActualizado ? ' · cambiado el ' + dia.videoActualizado : ''}</div>
+      ${dia.paginaPexels ? `
+      <div class="pagina-pexels">
+        <a href="${dia.paginaPexels}" target="_blank" rel="noopener">🔗 Ver este video en Pexels</a>
+      </div>` : ''}
       ${dia.videoActual ? `
       <div class="video-url">
         <input type="text" readonly value="${dia.videoActual}" onclick="this.select()">
-        <button type="button" class="copiar-url-btn">Copiar URL</button>
+        <button type="button" class="copiar-url-btn">Copiar URL del archivo</button>
       </div>` : ''}
       <div class="acciones">
         <button class="aprobar-btn ${dia.aprobado ? 'activo' : ''}" data-aprobado="${dia.aprobado}">
