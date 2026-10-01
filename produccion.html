@@ -29,7 +29,7 @@
     border-radius:8px; font-size:15px; cursor:pointer;
   }
 
-  #app{display:none; max-width:920px; margin:0 auto;}
+  #app{display:none; max-width:1180px; margin:0 auto;}
   .layout{display:flex; gap:24px; align-items:flex-start;}
   @media (max-width:720px){ .layout{flex-direction:column;} }
 
@@ -71,8 +71,8 @@
   /* Panel de detalle en dos columnas: texto/reflexión a la izquierda,
      video/acciones a la derecha. En pantallas angostas se apilan. */
   .detalle-cols{display:flex; gap:24px; align-items:flex-start;}
-  .detalle-texto{flex:1 1 260px; min-width:0;}
-  .detalle-video{flex:1 1 260px; min-width:0;}
+  .detalle-texto{flex:1 1 280px; min-width:0;}
+  .detalle-video{flex:1.4 1 380px; min-width:0;}
   @media (max-width:640px){ .detalle-cols{flex-direction:column;} }
 
   .dia-fecha{font-weight:700; text-transform:capitalize; margin-bottom:2px;}
@@ -96,11 +96,11 @@
   .msg-reflexion.error{color:var(--error);}
   .preview-wrap{position:relative; margin-bottom:12px;}
   .preview-wrap img.preview,.preview-wrap video.preview-video{
-    width:100%; height:260px; object-fit:cover; border-radius:10px;
+    width:100%; aspect-ratio:16/10; height:auto; object-fit:cover; border-radius:10px;
     background:linear-gradient(135deg, #2a3038, #1a1e24); display:block;
   }
   .preview-wrap .sin-foto{
-    width:100%; height:260px; border-radius:10px;
+    width:100%; aspect-ratio:16/10; border-radius:10px;
     background:linear-gradient(135deg, #2a3038, #1a1e24);
     display:flex; align-items:center; justify-content:center;
     color:rgba(255,255,255,.7); font-size:14px;
