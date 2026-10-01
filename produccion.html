@@ -521,10 +521,21 @@
           const escala = Math.max(W / img.width, H / img.height);
           const iw = img.width * escala, ih = img.height * escala;
           ctx.drawImage(img, (W - iw) / 2, (H - ih) / 2, iw, ih);
-          canvas.toBlob(blob => {
-            if (blob) resolve(blob);
-            else reject(new Error("No se pudo procesar la imagen."));
-          }, "image/jpeg", 0.9);
+
+          // Comprime en pasos hasta dejarla liviana. Una foto de celular
+          // recortada a 1080×1920 con calidad alta puede pesar varios MB,
+          // y en algunos Android eso hace que la pantalla de compartir de
+          // WhatsApp se quede en negro mientras intenta generar la vista
+          // previa de un archivo tan pesado.
+          const LIMITE_BYTES = 350 * 1024; // 350 KB
+          const probar = (calidad) => {
+            canvas.toBlob(blob => {
+              if (!blob) { reject(new Error("No se pudo procesar la imagen.")); return; }
+              if (blob.size <= LIMITE_BYTES || calidad <= 0.5) resolve(blob);
+              else probar(calidad - 0.1);
+            }, "image/jpeg", calidad);
+          };
+          probar(0.85);
         };
         img.onerror = () => reject(new Error("El archivo no es una imagen válida."));
         img.src = lector.result;
