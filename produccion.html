@@ -141,6 +141,27 @@
   }
   .msg.error{color:var(--error);}
   #cargando-detalle{color:#888; padding:60px 0; text-align:center;}
+
+  .imagen-compartir-edit{margin-bottom:14px; padding:12px; border:1px dashed #ddd; border-radius:10px; background:#fafafa;}
+  .imagen-compartir-preview-wrap{margin-bottom:8px;}
+  .imagen-compartir-preview{
+    width:140px; height:249px; object-fit:cover; border-radius:8px; display:block;
+    box-shadow:0 1px 4px rgba(0,0,0,.15);
+  }
+  .imagen-compartir-vacia{
+    font-size:13px; color:#888; background:#f0f0f0; border-radius:8px;
+    padding:14px; text-align:center;
+  }
+  .imagen-compartir-input{font-size:13px; margin-bottom:6px; display:block;}
+  .subir-imagen-btn{
+    background:var(--azul); color:#fff; border:none;
+    padding:9px 14px; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;
+  }
+  .subir-imagen-btn:disabled{opacity:.6; cursor:default;}
+  .msg-imagen{font-size:13px;}
+  .msg-imagen.ok{color:var(--ok);}
+  .msg-imagen.error{color:var(--error);}
+  .imagen-compartir-ayuda{font-size:12px; color:#999; margin-top:6px;}
 </style>
 </head>
 <body>
@@ -344,6 +365,20 @@
           <span class="msg-reflexion"></span>
         </div>
       </div>
+      <div class="imagen-compartir-edit">
+        <label class="reflexion-label">Imagen para compartir en "Compartir la promesa de hoy"</label>
+        <div class="imagen-compartir-preview-wrap">
+          ${dia.imagenCompartir
+            ? `<img class="imagen-compartir-preview" src="${dia.imagenCompartir}" alt="Imagen para compartir">`
+            : `<div class="imagen-compartir-vacia">Aún no tiene imagen propia.<br>Mientras tanto se usa el fotograma del video de fondo.</div>`}
+        </div>
+        <input type="file" accept="image/*" class="imagen-compartir-input" id="imagen-compartir-input">
+        <div class="reflexion-acciones">
+          <button type="button" class="subir-imagen-btn">Subir imagen</button>
+          <span class="msg-imagen"></span>
+        </div>
+        <div class="imagen-compartir-ayuda">Se recorta sola a formato vertical (1080×1920 px) — sube cualquier foto y ella la ajusta.</div>
+      </div>
       <div class="preview-wrap">
         ${previewHTML}
         <video class="preview-video" muted loop playsinline style="display:none;"></video>
@@ -421,6 +456,85 @@
       const texto = detalle.querySelector(".reflexion-textarea").value;
       guardarReflexion(dia.fila, texto);
     });
+    detalle.querySelector(".subir-imagen-btn").addEventListener("click", () => {
+      const input = detalle.querySelector(".imagen-compartir-input");
+      const archivo = input.files && input.files[0];
+      if (!archivo) {
+        const msg = detalle.querySelector(".msg-imagen");
+        msg.textContent = "Primero elige una imagen.";
+        msg.className = "msg-imagen error";
+        return;
+      }
+      subirImagenCompartir(dia.fila, archivo);
+    });
+  }
+
+  // Recorta/ajusta cualquier foto que suban al formato vertical fijo que
+  // usa la imagen de "Compartir la promesa de hoy" (estilo "cover", igual
+  // que hace la propia web con el video de fondo) — así no toca acertarle
+  // a la medida exacta, cualquier foto queda bien.
+  function recortarAFormatoCompartir(archivo) {
+    return new Promise((resolve, reject) => {
+      const lector = new FileReader();
+      lector.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const W = 1080, H = 1920;
+          const canvas = document.createElement("canvas");
+          canvas.width = W; canvas.height = H;
+          const ctx = canvas.getContext("2d");
+          const escala = Math.max(W / img.width, H / img.height);
+          const iw = img.width * escala, ih = img.height * escala;
+          ctx.drawImage(img, (W - iw) / 2, (H - ih) / 2, iw, ih);
+          canvas.toBlob(blob => {
+            if (blob) resolve(blob);
+            else reject(new Error("No se pudo procesar la imagen."));
+          }, "image/jpeg", 0.9);
+        };
+        img.onerror = () => reject(new Error("El archivo no es una imagen válida."));
+        img.src = lector.result;
+      };
+      lector.onerror = () => reject(new Error("No se pudo leer el archivo."));
+      lector.readAsDataURL(archivo);
+    });
+  }
+
+  function blobABase64(blob) {
+    return new Promise((resolve, reject) => {
+      const lector = new FileReader();
+      lector.onloadend = () => resolve(lector.result.split(",")[1]);
+      lector.onerror = reject;
+      lector.readAsDataURL(blob);
+    });
+  }
+
+  async function subirImagenCompartir(fila, archivo) {
+    const msg = document.querySelector(".msg-imagen");
+    if (msg) { msg.textContent = "Procesando imagen…"; msg.className = "msg-imagen"; }
+    const boton = document.querySelector(".subir-imagen-btn");
+    if (boton) boton.disabled = true;
+    try {
+      const recortada = await recortarAFormatoCompartir(archivo);
+      if (msg) msg.textContent = "Subiendo…";
+      const base64 = await blobABase64(recortada);
+      const datos = await peticionConReintento(URL_BACKEND, {
+        method: "POST",
+        body: JSON.stringify({
+          password: PASSWORD, accion: "subirImagen", fila,
+          datosBase64: base64, nombreArchivo: "imagen.jpg",
+        }),
+      });
+      if (!datos.ok) throw new Error(datos.error || "Error al subir la imagen");
+      if (msg) { msg.textContent = "¡Lista!"; msg.className = "msg-imagen ok"; }
+      const previewWrap = document.querySelector(".imagen-compartir-preview-wrap");
+      if (previewWrap) {
+        previewWrap.innerHTML = `<img class="imagen-compartir-preview" src="${datos.url}" alt="Imagen para compartir">`;
+      }
+    } catch (e) {
+      if (msg) { msg.textContent = "No se pudo subir: " + e.message; msg.className = "msg-imagen error"; }
+    } finally {
+      if (boton) boton.disabled = false;
+    }
   }
 
   async function guardarReflexion(fila, reflexion) {

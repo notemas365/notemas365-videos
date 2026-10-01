@@ -1134,6 +1134,11 @@
     document.getElementById("verse-ref").textContent = elegido.ref;
     document.getElementById("reflexion-text").textContent = elegido.reflexion || "";
 
+    // Lo guardamos aparte para que el botón "Compartir" sepa si este día
+    // tiene una imagen propia (subida desde /produccion.html) sin tener
+    // que volver a leer el Sheet.
+    window.versiculoActual = elegido;
+
     const verseVideo = document.getElementById("verse-video");
     if (actualizarVideo) {
       const nuevaFuente = new URL(video, window.location.href).href;
@@ -1232,11 +1237,32 @@
   });
 
 
-  // Genera la imagen que se comparte: el fotograma actual del video +
-  // el versículo, la fecha y la marca superpuestos, tal como se ve en
-  // la página. Es prácticamente instantánea (dibujar en un canvas no
-  // toma tiempo real), por eso es la opción principal al compartir.
-  function generarImagenParaCompartir() {
+  // Imagen que se comparte. Primero intenta usar la imagen propia del día
+  // (subida desde /produccion.html, pensada para esto: formato vertical
+  // fijo, texto y diseño ya hechos). Si ese día todavía no tiene una, cae
+  // al respaldo de siempre: el fotograma actual del video + el versículo
+  // dibujados en un canvas.
+  async function obtenerImagenParaCompartir() {
+    const urlPropia = window.versiculoActual && window.versiculoActual.imagenCompartir;
+    if (urlPropia) {
+      try {
+        const respuesta = await fetch(urlPropia, { mode: "cors" });
+        if (respuesta.ok) {
+          const blob = await respuesta.blob();
+          if (blob && blob.size > 0) return blob;
+        }
+      } catch (e) {
+        // Si falla (sin conexión al CDN, imagen borrada, etc.), seguimos
+        // abajo con el respaldo del canvas — nunca se queda sin imagen.
+      }
+    }
+    return generarImagenDeRespaldo();
+  }
+
+  // Respaldo: el fotograma actual del video + el versículo, la fecha y la
+  // marca superpuestos, tal como se ve en la página. Es prácticamente
+  // instantánea (dibujar en un canvas no toma tiempo real).
+  function generarImagenDeRespaldo() {
     const video = document.getElementById("verse-video");
     const fecha = document.getElementById("verse-date").textContent;
     const texto = document.getElementById("verse-text").textContent;
@@ -1319,23 +1345,27 @@
   }
 
   document.getElementById("share-btn").addEventListener("click", async () => {
+    const fecha = document.getElementById("verse-date").textContent;
     const texto = document.getElementById("verse-text").textContent;
     const ref = document.getElementById("verse-ref").textContent;
     const reflexion = document.getElementById("reflexion-text").textContent;
     const textoParaCompartir =
+      fecha + "\n\n" +
       texto + "\n— " + ref + " (LBLA)\n\n" +
       reflexion + "\n\n" +
-      "https://notemas365.com";
+      "Visítanos en notemas365.com";
 
-    // 1) Imagen (casi instantánea — dibujar en canvas no toma tiempo real).
-    // Quitamos el video de este flujo: grababa 1.2+ segundos antes de
-    // poder compartir, y ese retraso hacía que algunos celulares trataran
-    // la apertura de WhatsApp como una ventana de escritorio en vez de
-    // abrir la app directamente. Mejor rápido y confiable que llamativo
-    // y poco fiable.
+    // 1) Imagen: la propia del día si ya hay una subida desde producción,
+    // o el respaldo del fotograma del video. Quitamos el video en vivo de
+    // este flujo hace tiempo: grababa 1.2+ segundos antes de poder
+    // compartir, y ese retraso hacía que algunos celulares trataran la
+    // apertura de WhatsApp como una ventana de escritorio en vez de abrir
+    // la app directamente. Mejor rápido y confiable que llamativo y poco
+    // fiable.
     try {
-      const blob = await generarImagenParaCompartir();
-      const archivo = new File([blob], "no-temas-365.png", { type: "image/png" });
+      const blob = await obtenerImagenParaCompartir();
+      const extension = blob.type === "image/png" ? "png" : "jpg";
+      const archivo = new File([blob], "no-temas-365." + extension, { type: blob.type || "image/jpeg" });
       if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
         await navigator.share({
           files: [archivo],
@@ -1400,6 +1430,7 @@
         texto: encabezado.findIndex(h => h.trim().toLowerCase() === "versiculo"),
         reflexion: encabezado.findIndex(h => h.trim().toLowerCase() === "reflexion"),
         video: encabezado.findIndex(h => h.trim().toLowerCase() === "video"),
+        imagenCompartir: encabezado.findIndex(h => h.trim().toLowerCase() === "imagen_compartir"),
       };
       const desdeHoja = datos
         .map(fila => ({
@@ -1409,6 +1440,9 @@
           // Si en la columna "video" de esa fila hay una URL (asignada desde
           // /produccion.html), se usa esa en vez de la rotación automática.
           video: idx.video !== -1 ? (fila[idx.video] || "").trim() : "",
+          // Imagen propia para "Compartir la promesa de hoy", subida desde
+          // /produccion.html. Si está vacía, se usa el fotograma del video.
+          imagenCompartir: idx.imagenCompartir !== -1 ? (fila[idx.imagenCompartir] || "").trim() : "",
         }))
         .filter(v => v.texto && v.ref);
       return desdeHoja.length ? desdeHoja : versiculosRespaldo;
