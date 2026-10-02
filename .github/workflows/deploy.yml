@@ -13,6 +13,8 @@ on:
       - "manifest.json"
       - "icon-192.png"
       - "icon-512.png"
+      - "actualizar-video.js"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch: {} # permite correrlo a mano desde la pestaña "Actions" de GitHub, para probar
 
 jobs:
