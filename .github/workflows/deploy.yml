@@ -32,7 +32,7 @@ jobs:
           PRODUCCION_PASSWORD: ${{ secrets.PRODUCCION_PASSWORD }}
         run: node actualizar-video.js
 
-      - name: Preparar carpeta a subir (solo los archivos del sitio, nunca los videos)
+      - name: Preparar carpeta a subir
         run: |
           mkdir -p a_subir
           cp index.html a_subir/index.html
@@ -41,6 +41,10 @@ jobs:
           [ -f manifest.json ] && cp manifest.json a_subir/manifest.json || true
           [ -f icon-192.png ] && cp icon-192.png a_subir/icon-192.png || true
           [ -f icon-512.png ] && cp icon-512.png a_subir/icon-512.png || true
+          # La copia local del video de hoy (descargada por actualizar-video.js).
+          # No se guarda en el repo (es un archivo generado cada noche), solo
+          # vive en esta carpeta temporal del workflow y se sube a Hostinger.
+          [ -d videos-dia ] && cp -r videos-dia a_subir/videos-dia || true
 
       - name: Subir a Hostinger por FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5

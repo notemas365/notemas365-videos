@@ -1048,12 +1048,18 @@
   // Si necesitas correr la fecha de inicio, solo cambia esta línea.
   const FECHA_INICIO = new Date(2026, 8, 1); // mes 8 = septiembre (0-indexado)
 
-  // ⚠️ NO EDITAR A MANO. Esta línea la reescribe automáticamente un robot
-  // (GitHub Actions) cada madrugada, con el video YA CONFIRMADO del día —
-  // así el primer visitante del día también lo recibe listo, sin destello.
-  // Si el robot todavía no ha corrido hoy (o algo falla), se queda vacío
-  // y el sitio sigue funcionando igual que siempre (adivina y confirma).
+  // ⚠️ NO EDITAR A MANO. Estas dos líneas las reescribe automáticamente un
+  // robot (GitHub Actions) cada madrugada: descarga el video YA CONFIRMADO
+  // del día y lo sube a Hostinger junto con el resto del sitio (carpeta
+  // videos-dia/), para que el visitante lo reciba directo desde el mismo
+  // dominio — sin depender de Pexels en el momento de la visita (nada de
+  // esperar a un CDN externo, ni problemas de CORS). VIDEO_PRECARGADO_FECHA
+  // es la fecha para la que se descargó: si por algo el robot no corrió
+  // hoy, esa fecha no coincide con la de hoy y el sitio ignora el video
+  // viejo, usando el de respaldo normal en su lugar (nunca queda pegado
+  // mostrando el video de un día anterior).
   const VIDEO_PRECARGADO_HOY = "";
+  const VIDEO_PRECARGADO_FECHA = "";
 
   const hoy = new Date();
   const hoySinHora = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
@@ -1104,18 +1110,27 @@
     const indiceVideo = ((diasTranscurridos % fondos.length) + fondos.length) % fondos.length;
     const elegido = versiculos[indiceVerso];
     const videoReal = (elegido.video && elegido.video.trim()) ? elegido.video.trim() : fondos[indiceVideo];
+    // La copia local (en Hostinger) solo se usa si es justo la de HOY —
+    // si el robot nocturno falló o no ha corrido todavía, esa fecha no
+    // coincide y se cae de vuelta al video real del Sheet (vía Pexels),
+    // nunca se queda pegado mostrando el video de un día anterior.
+    const videoLocalDeHoy = (VIDEO_PRECARGADO_HOY && VIDEO_PRECARGADO_HOY.trim() && VIDEO_PRECARGADO_FECHA === hoyISO)
+      ? VIDEO_PRECARGADO_HOY.trim()
+      : "";
     let video;
     if (esConfirmado) {
-      // Datos reales del Sheet: este SÍ es el video correcto — se usa
-      // siempre, y se guarda en caché para la próxima visita de hoy.
-      video = videoReal;
+      // Datos reales del Sheet: este SÍ es el video correcto. Preferimos
+      // la copia local (mismo dominio, sin depender de Pexels al momento
+      // de la visita) y se guarda en caché para la próxima visita de hoy.
+      video = videoLocalDeHoy || videoReal;
       guardarVideoCacheado(video);
     } else {
-      // Render instantáneo: prioridad es 1) el video que el robot ya dejó
-      // precargado para hoy (funciona incluso para el primer visitante
-      // del día en cualquier navegador), 2) la caché de una visita
-      // anterior hoy en ESTE navegador, 3) el automático adivinado.
-      video = (VIDEO_PRECARGADO_HOY && VIDEO_PRECARGADO_HOY.trim())
+      // Render instantáneo: prioridad es 1) la copia local de hoy ya
+      // subida a Hostinger (funciona incluso para el primer visitante del
+      // día, en cualquier navegador, sin esperar a Pexels), 2) la caché de
+      // una visita anterior hoy en ESTE navegador, 3) el automático
+      // adivinado.
+      video = videoLocalDeHoy
         || obtenerVideoCacheado()
         || videoReal;
     }
@@ -1191,14 +1206,14 @@
     return elegido;
   }
 
-  // 1) Mostrar el TEXTO de inmediato con la lista de respaldo — cero
-  // espera. El VIDEO se deja quieto (de fondo, el color sólido de marca)
-  // hasta que el Sheet confirme cuál es el correcto: antes se "adivinaba"
-  // un video ya de una vez para no esperar, pero si el real resultaba
-  // distinto, la página descartaba a medias ese video y volvía a
-  // descargar el correcto desde cero — y eso se veía como una pantalla
-  // negra larga, peor que esperar un instante por el real una sola vez.
-  renderizarDia(versiculosRespaldo, fondos, false);
+  // 1) Mostrar TEXTO y VIDEO de inmediato con la lista de respaldo. El
+  // video que se asigna aquí es la copia local de HOY ya subida a
+  // Hostinger (mismo archivo que usará la confirmación del Sheet más
+  // abajo) — por eso ya no hay riesgo de "doble carga": si coincide,
+  // nunca se reemplaza; si el robot nocturno falló y no hay copia local
+  // de hoy, cae al automático de respaldo y SÍ se corrige una vez cuando
+  // el Sheet confirme (con un fundido, ver renderizarDia).
+  renderizarDia(versiculosRespaldo, fondos, true);
 
   // Interruptor de tema claro/oscuro. El tema por defecto es SIEMPRE
   // claro (no seguimos la preferencia del sistema) — solo cambia si la

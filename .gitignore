@@ -1,0 +1,5 @@
+# Copia local del video de hoy: la descarga actualizar-video.js en cada
+# corrida del workflow y se sube a Hostinger por FTP, nunca se guarda en git.
+videos-dia/
+a_subir/
+node_modules/

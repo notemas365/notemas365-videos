@@ -1,19 +1,31 @@
 // actualizar-video.js
 // -----------------------------------------------------------------------
 // Le pregunta al backend de Apps Script cuál es el video YA CONFIRMADO
-// para hoy, y lo escribe directamente en index.html (reemplazando la
-// línea VIDEO_PRECARGADO_HOY), listo para subirse a Hostinger.
+// para hoy, lo DESCARGA (los bytes reales, no solo la URL) y lo deja
+// listo en videos-dia/hoy.mp4 para subirse a Hostinger junto con el
+// resto del sitio. Así el visitante lo recibe directo desde el mismo
+// dominio — sin depender de Pexels en el momento de la visita, que es
+// justo lo que causaba las esperas largas (a veces Pexels tarda, o el
+// video nunca termina de llegar).
 //
-// Si algo falla (backend caído, sin internet, etc.), el script SALE SIN
-// ERROR y deja index.html sin tocar — el sitio sigue funcionando con la
-// lógica normal (adivina y confirma), simplemente sin la precarga extra
-// de hoy. Preferimos "no actualizar hoy" a "romper el despliegue".
+// También reescribe en index.html las líneas VIDEO_PRECARGADO_HOY (apunta
+// a esa copia local) y VIDEO_PRECARGADO_FECHA (la fecha de hoy, para que
+// el sitio nunca use por error la copia de un día anterior si este script
+// llegara a fallar una noche).
+//
+// Si algo falla (backend caído, sin internet, Pexels no responde, etc.),
+// el script SALE SIN ERROR y deja index.html sin tocar — el sitio sigue
+// funcionando con la lógica normal (video real del Sheet vía Pexels).
+// Preferimos "no actualizar hoy" a "romper el despliegue".
 // -----------------------------------------------------------------------
 
 const fs = require("fs");
+const path = require("path");
 
 const URL_BACKEND = "https://script.google.com/macros/s/AKfycbwMFbxzi_BIC59bULyZuF5PI6z9oeGMGgawxvG8TkS1UvSGzkEYksdaxh8o7kNrN2oF/exec";
 const PASSWORD = process.env.PRODUCCION_PASSWORD;
+const CARPETA_VIDEO_LOCAL = "videos-dia";
+const ARCHIVO_VIDEO_LOCAL = "hoy.mp4";
 
 function esperar(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,11 +33,8 @@ function esperar(ms) {
 
 // El backend (Apps Script) a veces tarda varios segundos en "despertar" si
 // nadie lo ha usado en un rato, y ese primer intento puede fallar o
-// devolver una página de error en vez de JSON. Si eso pasa justo en el
-// despliegue nocturno y no reintentamos, VIDEO_PRECARGADO_HOY queda vacío
-// y la web "adivina" un video por unos segundos antes de corregirse con
-// el del Sheet (el "video fantasma"). Reintentamos un par de veces, con
-// pausa de por medio, antes de rendirnos.
+// devolver una página de error en vez de JSON. Reintentamos un par de
+// veces, con pausa de por medio, antes de rendirnos.
 async function pedirVideoDeHoy() {
   const intentosMax = 3;
   for (let intento = 0; intento < intentosMax; intento++) {
@@ -33,7 +42,7 @@ async function pedirVideoDeHoy() {
       const resp = await fetch(URL_BACKEND + "?password=" + encodeURIComponent(PASSWORD) + "&dias=1");
       const datos = await resp.json();
       if (datos.ok && datos.dias && datos.dias[0] && datos.dias[0].videoActual) {
-        return datos.dias[0].videoActual;
+        return { url: datos.dias[0].videoActual, fechaISO: datos.dias[0].fechaISO };
       }
       console.log(`Intento ${intento + 1}/${intentosMax}: el backend no devolvió un video válido todavía.`);
     } catch (error) {
@@ -44,30 +53,60 @@ async function pedirVideoDeHoy() {
   return null;
 }
 
+// Descarga el archivo de video completo (los bytes, no solo la URL) a
+// disco. Si Pexels responde lento o falla, lanza error — el llamador
+// decide qué hacer (dejar index.html sin tocar, en este caso).
+async function descargarVideo(url, destino) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Pexels respondió ${resp.status} al descargar el video`);
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  fs.mkdirSync(path.dirname(destino), { recursive: true });
+  fs.writeFileSync(destino, buffer);
+  return buffer.length;
+}
+
 async function main() {
   if (!PASSWORD) {
     console.log("Falta PRODUCCION_PASSWORD — se deja index.html sin cambios.");
     return;
   }
 
-  const video = await pedirVideoDeHoy();
-  if (!video) {
+  const confirmado = await pedirVideoDeHoy();
+  if (!confirmado) {
     console.log("El backend no devolvió un video válido hoy (tras varios intentos) — se deja index.html sin cambios.");
     return;
   }
-  console.log("Video de hoy:", video);
+  console.log("Video de hoy:", confirmado.url, "— fecha:", confirmado.fechaISO);
+
+  const destino = path.join(CARPETA_VIDEO_LOCAL, ARCHIVO_VIDEO_LOCAL);
+  let pesoBytes;
+  try {
+    pesoBytes = await descargarVideo(confirmado.url, destino);
+  } catch (error) {
+    console.log("No se pudo descargar el video de hoy — se deja index.html sin cambios:", error.message);
+    return;
+  }
+  console.log(`Video descargado a ${destino} (${(pesoBytes / 1024 / 1024).toFixed(1)} MB).`);
 
   let html = fs.readFileSync("index.html", "utf8");
-  const patronActual = /const VIDEO_PRECARGADO_HOY = "[^"]*";/;
+  const patronHoy = /const VIDEO_PRECARGADO_HOY = "[^"]*";/;
+  const patronFecha = /const VIDEO_PRECARGADO_FECHA = "[^"]*";/;
 
-  if (!patronActual.test(html)) {
-    console.log("No se encontró la línea VIDEO_PRECARGADO_HOY en index.html — no se tocó nada.");
+  if (!patronHoy.test(html) || !patronFecha.test(html)) {
+    console.log("No se encontraron las líneas VIDEO_PRECARGADO_HOY / VIDEO_PRECARGADO_FECHA en index.html — no se tocó nada.");
     return;
   }
 
-  html = html.replace(patronActual, `const VIDEO_PRECARGADO_HOY = "${video}";`);
+  // Query de caché con la fecha: el nombre del archivo en disco siempre es
+  // el mismo (hoy.mp4, se sobreescribe cada día), así que sin esto el
+  // navegador de un visitante que ya vio el sitio ayer podría seguir
+  // usando SU copia en caché de "ayer" en vez de pedir la de hoy.
+  const videoConCache = `${CARPETA_VIDEO_LOCAL}/${ARCHIVO_VIDEO_LOCAL}?d=${confirmado.fechaISO}`;
+
+  html = html.replace(patronHoy, `const VIDEO_PRECARGADO_HOY = "${videoConCache}";`);
+  html = html.replace(patronFecha, `const VIDEO_PRECARGADO_FECHA = "${confirmado.fechaISO}";`);
   fs.writeFileSync("index.html", html);
-  console.log("index.html actualizado con el video de hoy.");
+  console.log("index.html actualizado con la copia local del video de hoy.");
 }
 
 main();
