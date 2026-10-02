@@ -29,6 +29,9 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Instalar ffmpeg (para comprimir el video del día)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Consultar el video de hoy e inyectarlo en index.html
         env:
           PRODUCCION_PASSWORD: ${{ secrets.PRODUCCION_PASSWORD }}
