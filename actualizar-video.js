@@ -1,10 +1,11 @@
 // actualizar-video.js
 // -----------------------------------------------------------------------
 // Le pregunta al backend de Apps Script cuál es el video YA CONFIRMADO
-// para hoy, lo DESCARGA (los bytes reales, no solo la URL) y lo deja
-// listo en videos-dia/hoy.mp4 para subirse a Hostinger junto con el
-// resto del sitio. Así el visitante lo recibe directo desde el mismo
-// dominio — sin depender de Pexels en el momento de la visita, que es
+// para hoy, lo DESCARGA (los bytes reales, no solo la URL), lo COMPRIME
+// (los originales de Pexels pueden pesar 90+ MB) y lo deja listo en
+// videos-dia/hoy.mp4 para subirse a Hostinger junto con el resto del
+// sitio. Así el visitante lo recibe directo desde el mismo dominio, ya
+// liviano — sin depender de Pexels en el momento de la visita, que es
 // justo lo que causaba las esperas largas (a veces Pexels tarda, o el
 // video nunca termina de llegar).
 //
@@ -67,24 +68,49 @@ async function descargarVideo(url, destinoTemporal) {
   return buffer.length;
 }
 
-// Los videos de Pexels (y la mayoría de stock footage) traen el índice
-// interno del archivo ("moov atom") al FINAL en vez de al principio. Eso
-// no importa cuando el navegador lo pide por streaming a un CDN grande,
-// pero significa que, aunque el archivo ya esté en nuestro propio
-// servidor, el navegador igual tiene que esperar a ubicar ese índice
-// antes de poder mostrar el primer cuadro — y eso se ve como 1-2
-// segundos de pantalla negra incluso con el video ya local. Reescribimos
-// el archivo con ffmpeg para mover ese índice al frente ("faststart"),
-// así el video arranca de inmediato apenas llegan los primeros bytes.
-// Si ffmpeg no está disponible o falla por algo, usamos el archivo tal
-// cual se descargó — sigue funcionando, solo sin esta mejora.
-function moverIndiceAlFrente(origen, destinoFinal) {
+// Pexels entrega el archivo original en alta resolución — se han visto
+// videos de ¡96 MB! para un simple fondo en loop. Eso es completamente
+// inviable en hosting compartido: por bien optimizado que esté el
+// archivo (ver "faststart" abajo), un celular con datos móviles tarda
+// muchos segundos en recibir los primeros megas, y eso es exactamente lo
+// que se veía como "pantalla negra / imagen fija que no reproduce".
+//
+// La solución real es REDUCIR el peso, no solo reordenar el archivo:
+//   - Reescalar a un ancho máximo de 1280px (de sobra para un fondo
+//     detrás de texto, que nunca se ve a pantalla completa en detalle).
+//   - Quitar el audio (-an): el <video> siempre se reproduce "muted", así
+//     que el audio original no sirve para nada y solo pesa.
+//   - Recodificar con calidad razonable (CRF 26 — visualmente casi
+//     idéntico para video de fondo, pero una fracción del peso).
+// Esto normalmente baja un archivo de decenas de MB a 2-6 MB.
+//
+// Se combina con "+faststart" (mueve el índice/"moov atom" al frente del
+// archivo) para que el navegador pueda arrancar a reproducir apenas
+// llegan los primeros bytes, en vez de esperar a tener el archivo
+// completo para ubicar ese índice.
+//
+// Si ffmpeg no está disponible o la recodificación falla por algo, se
+// sube el archivo original tal cual se descargó — pesado, pero el sitio
+// sigue funcionando (mismo criterio de "no romper el despliegue").
+function comprimirVideo(origen, destinoFinal) {
   try {
-    execFileSync("ffmpeg", ["-y", "-i", origen, "-c", "copy", "-movflags", "+faststart", destinoFinal], { stdio: "pipe" });
+    execFileSync(
+      "ffmpeg",
+      [
+        "-y", "-i", origen,
+        "-vf", "scale='min(1280,iw)':-2",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "26",
+        "-an",
+        "-movflags", "+faststart",
+        destinoFinal,
+      ],
+      { stdio: "pipe" }
+    );
     fs.unlinkSync(origen);
-    console.log("Video reescrito con 'faststart' (arranque instantáneo).");
+    const pesoFinal = fs.statSync(destinoFinal).size;
+    console.log(`Video comprimido a ${(pesoFinal / 1024 / 1024).toFixed(1)} MB (listo para servir desde Hostinger).`);
   } catch (error) {
-    console.log("No se pudo aplicar 'faststart' (se deja el video tal cual se descargó):", error.message);
+    console.log("No se pudo comprimir el video (se sube el original, sin optimizar):", error.message);
     fs.renameSync(origen, destinoFinal);
   }
 }
@@ -111,8 +137,8 @@ async function main() {
     console.log("No se pudo descargar el video de hoy — se deja index.html sin cambios:", error.message);
     return;
   }
-  console.log(`Video descargado a ${temporal} (${(pesoBytes / 1024 / 1024).toFixed(1)} MB).`);
-  moverIndiceAlFrente(temporal, destino);
+  console.log(`Video descargado a ${temporal} (${(pesoBytes / 1024 / 1024).toFixed(1)} MB, original de Pexels).`);
+  comprimirVideo(temporal, destino);
 
   let html = fs.readFileSync("index.html", "utf8");
   const patronHoy = /const VIDEO_PRECARGADO_HOY = "[^"]*";/;
