@@ -21,11 +21,13 @@
 
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 const URL_BACKEND = "https://script.google.com/macros/s/AKfycbwMFbxzi_BIC59bULyZuF5PI6z9oeGMGgawxvG8TkS1UvSGzkEYksdaxh8o7kNrN2oF/exec";
 const PASSWORD = process.env.PRODUCCION_PASSWORD;
 const CARPETA_VIDEO_LOCAL = "videos-dia";
 const ARCHIVO_VIDEO_LOCAL = "hoy.mp4";
+const ARCHIVO_TEMPORAL = "hoy.descarga.mp4";
 
 function esperar(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -56,13 +58,35 @@ async function pedirVideoDeHoy() {
 // Descarga el archivo de video completo (los bytes, no solo la URL) a
 // disco. Si Pexels responde lento o falla, lanza error — el llamador
 // decide qué hacer (dejar index.html sin tocar, en este caso).
-async function descargarVideo(url, destino) {
+async function descargarVideo(url, destinoTemporal) {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Pexels respondió ${resp.status} al descargar el video`);
   const buffer = Buffer.from(await resp.arrayBuffer());
-  fs.mkdirSync(path.dirname(destino), { recursive: true });
-  fs.writeFileSync(destino, buffer);
+  fs.mkdirSync(path.dirname(destinoTemporal), { recursive: true });
+  fs.writeFileSync(destinoTemporal, buffer);
   return buffer.length;
+}
+
+// Los videos de Pexels (y la mayoría de stock footage) traen el índice
+// interno del archivo ("moov atom") al FINAL en vez de al principio. Eso
+// no importa cuando el navegador lo pide por streaming a un CDN grande,
+// pero significa que, aunque el archivo ya esté en nuestro propio
+// servidor, el navegador igual tiene que esperar a ubicar ese índice
+// antes de poder mostrar el primer cuadro — y eso se ve como 1-2
+// segundos de pantalla negra incluso con el video ya local. Reescribimos
+// el archivo con ffmpeg para mover ese índice al frente ("faststart"),
+// así el video arranca de inmediato apenas llegan los primeros bytes.
+// Si ffmpeg no está disponible o falla por algo, usamos el archivo tal
+// cual se descargó — sigue funcionando, solo sin esta mejora.
+function moverIndiceAlFrente(origen, destinoFinal) {
+  try {
+    execFileSync("ffmpeg", ["-y", "-i", origen, "-c", "copy", "-movflags", "+faststart", destinoFinal], { stdio: "pipe" });
+    fs.unlinkSync(origen);
+    console.log("Video reescrito con 'faststart' (arranque instantáneo).");
+  } catch (error) {
+    console.log("No se pudo aplicar 'faststart' (se deja el video tal cual se descargó):", error.message);
+    fs.renameSync(origen, destinoFinal);
+  }
 }
 
 async function main() {
@@ -79,14 +103,16 @@ async function main() {
   console.log("Video de hoy:", confirmado.url, "— fecha:", confirmado.fechaISO);
 
   const destino = path.join(CARPETA_VIDEO_LOCAL, ARCHIVO_VIDEO_LOCAL);
+  const temporal = path.join(CARPETA_VIDEO_LOCAL, ARCHIVO_TEMPORAL);
   let pesoBytes;
   try {
-    pesoBytes = await descargarVideo(confirmado.url, destino);
+    pesoBytes = await descargarVideo(confirmado.url, temporal);
   } catch (error) {
     console.log("No se pudo descargar el video de hoy — se deja index.html sin cambios:", error.message);
     return;
   }
-  console.log(`Video descargado a ${destino} (${(pesoBytes / 1024 / 1024).toFixed(1)} MB).`);
+  console.log(`Video descargado a ${temporal} (${(pesoBytes / 1024 / 1024).toFixed(1)} MB).`);
+  moverIndiceAlFrente(temporal, destino);
 
   let html = fs.readFileSync("index.html", "utf8");
   const patronHoy = /const VIDEO_PRECARGADO_HOY = "[^"]*";/;
