@@ -1140,6 +1140,11 @@
     window.versiculoActual = elegido;
 
     const verseVideo = document.getElementById("verse-video");
+    // Miniatura de ese mismo video (la que ya ves en /produccion.html):
+    // se ve de inmediato como fondo mientras el video real termina de
+    // cargar, para que nunca se vea la pantalla en negro.
+    if (elegido.poster) verseVideo.poster = elegido.poster;
+
     if (actualizarVideo) {
       const nuevaFuente = new URL(video, window.location.href).href;
       if (verseVideo.src !== nuevaFuente) {
@@ -1150,20 +1155,25 @@
           verseVideo.src = video;
           const restaurarOpacidad = () => { verseVideo.style.opacity = "1"; };
           let yaResuelto = false;
+          const irAlRespaldo = () => {
+            if (yaResuelto || verseVideo.src !== nuevaFuente) return;
+            yaResuelto = true;
+            verseVideo.src = fondos[indiceVideo];
+            verseVideo.play().catch(() => {});
+            restaurarOpacidad();
+          };
           verseVideo.addEventListener("canplay", () => {
             yaResuelto = true;
             restaurarOpacidad();
           }, { once: true });
-          // Si este video en particular (ej. uno subido a Drive) tarda
-          // demasiado en estar listo, no dejamos al visitante mirando el
-          // fondo oscuro solo — mostramos el automático mientras carga.
-          setTimeout(() => {
-            if (!yaResuelto && verseVideo.src === nuevaFuente) {
-              verseVideo.src = fondos[indiceVideo];
-              verseVideo.play().catch(() => {});
-              restaurarOpacidad();
-            }
-          }, 4000);
+          // Si el video realmente falla (URL rota, archivo borrado, etc.)
+          // caemos al automático de inmediato.
+          verseVideo.addEventListener("error", irAlRespaldo, { once: true });
+          // Respaldo final por si se queda "colgado" sin cargar ni fallar
+          // formalmente — generoso (conexiones móviles lentas son
+          // normales) para no reemplazar un video válido solo porque
+          // tardó un poco más de la cuenta.
+          setTimeout(irAlRespaldo, 15000);
           verseVideo.play().catch(() => {
             restaurarOpacidad(); // si el autoplay falla, igual mostramos el fotograma
           });
@@ -1420,7 +1430,14 @@
   async function cargarVersiculos() {
     if (!URL_HOJA_CALCULO) return versiculosRespaldo;
     try {
-      const respuesta = await fetch(URL_HOJA_CALCULO);
+      // El CSV "publicado en la web" de Google a veces queda cacheado
+      // (por Google o por el propio navegador) y no refleja al instante
+      // un cambio reciente hecho desde /produccion.html — por eso se ve
+      // a veces un video que ya no corresponde a lo configurado. El
+      // parámetro con la hora actual + "no-store" obligan a traer
+      // siempre la versión más reciente.
+      const url = URL_HOJA_CALCULO + "&_=" + Date.now();
+      const respuesta = await fetch(url, { cache: "no-store" });
       if (!respuesta.ok) throw new Error("No se pudo leer la hoja");
       const texto = await respuesta.text();
       const filas = parseCSV(texto);
@@ -1430,6 +1447,7 @@
         texto: encabezado.findIndex(h => h.trim().toLowerCase() === "versiculo"),
         reflexion: encabezado.findIndex(h => h.trim().toLowerCase() === "reflexion"),
         video: encabezado.findIndex(h => h.trim().toLowerCase() === "video"),
+        poster: encabezado.findIndex(h => h.trim().toLowerCase() === "video_poster"),
         imagenCompartir: encabezado.findIndex(h => h.trim().toLowerCase() === "imagen_compartir"),
       };
       const desdeHoja = datos
@@ -1440,6 +1458,10 @@
           // Si en la columna "video" de esa fila hay una URL (asignada desde
           // /produccion.html), se usa esa en vez de la rotación automática.
           video: idx.video !== -1 ? (fila[idx.video] || "").trim() : "",
+          // Miniatura del video (la misma que ya usa /produccion.html) —
+          // se muestra de inmediato como fondo mientras el video real
+          // termina de descargar, para no dejar la pantalla en negro.
+          poster: idx.poster !== -1 ? (fila[idx.poster] || "").trim() : "",
           // Imagen propia para "Compartir la promesa de hoy", subida desde
           // /produccion.html. Si está vacía, se usa el fotograma del video.
           imagenCompartir: idx.imagenCompartir !== -1 ? (fila[idx.imagenCompartir] || "").trim() : "",
