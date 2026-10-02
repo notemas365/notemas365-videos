@@ -18,6 +18,16 @@
 // el script SALE SIN ERROR y deja index.html sin tocar — el sitio sigue
 // funcionando con la lógica normal (video real del Sheet vía Pexels).
 // Preferimos "no actualizar hoy" a "romper el despliegue".
+//
+// DIAGNÓSTICO: como el paso de GitHub Actions siempre queda en "success"
+// aunque el script decida no tocar nada (a propósito, para no romper el
+// despliegue), es imposible saber desde afuera si en verdad descargó y
+// comprimió el video o si se saltó algo silenciosamente. Por eso, cada
+// corrida escribe TODO lo que hizo (o por qué no hizo nada) en
+// videos-dia/estado.txt, que se sube a Hostinger igual que el video —
+// basta con abrir https://notemas365.org/videos-dia/estado.txt para ver
+// exactamente qué pasó en la última corrida, sin depender de los logs de
+// GitHub.
 // -----------------------------------------------------------------------
 
 const fs = require("fs");
@@ -29,6 +39,24 @@ const PASSWORD = process.env.PRODUCCION_PASSWORD;
 const CARPETA_VIDEO_LOCAL = "videos-dia";
 const ARCHIVO_VIDEO_LOCAL = "hoy.mp4";
 const ARCHIVO_TEMPORAL = "hoy.descarga.mp4";
+const ARCHIVO_ESTADO = "estado.txt";
+
+const lineasEstado = [];
+function registrar(...partes) {
+  const linea = partes.map(p => (p instanceof Error ? p.stack || p.message : String(p))).join(" ");
+  console.log(linea);
+  lineasEstado.push(linea);
+}
+
+function escribirEstado() {
+  try {
+    fs.mkdirSync(CARPETA_VIDEO_LOCAL, { recursive: true });
+    const encabezado = `=== actualizar-video.js — ${new Date().toISOString()} ===\n`;
+    fs.writeFileSync(path.join(CARPETA_VIDEO_LOCAL, ARCHIVO_ESTADO), encabezado + lineasEstado.join("\n") + "\n");
+  } catch (error) {
+    console.log("No se pudo escribir estado.txt:", error.message);
+  }
+}
 
 function esperar(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -43,13 +71,22 @@ async function pedirVideoDeHoy() {
   for (let intento = 0; intento < intentosMax; intento++) {
     try {
       const resp = await fetch(URL_BACKEND + "?password=" + encodeURIComponent(PASSWORD) + "&dias=1");
-      const datos = await resp.json();
+      registrar(`Intento ${intento + 1}: backend respondió HTTP ${resp.status}`);
+      const texto = await resp.text();
+      let datos;
+      try {
+        datos = JSON.parse(texto);
+      } catch (parseError) {
+        registrar(`Intento ${intento + 1}: la respuesta no fue JSON válido. Primeros 300 caracteres:`, texto.slice(0, 300));
+        throw parseError;
+      }
       if (datos.ok && datos.dias && datos.dias[0] && datos.dias[0].videoActual) {
+        registrar(`Intento ${intento + 1}: OK — video=${datos.dias[0].videoActual} fecha=${datos.dias[0].fechaISO}`);
         return { url: datos.dias[0].videoActual, fechaISO: datos.dias[0].fechaISO };
       }
-      console.log(`Intento ${intento + 1}/${intentosMax}: el backend no devolvió un video válido todavía.`);
+      registrar(`Intento ${intento + 1}/${intentosMax}: el backend respondió pero sin un video válido todavía. Cuerpo:`, JSON.stringify(datos).slice(0, 300));
     } catch (error) {
-      console.log(`Intento ${intento + 1}/${intentosMax} falló: ${error.message}`);
+      registrar(`Intento ${intento + 1}/${intentosMax} falló:`, error);
     }
     if (intento < intentosMax - 1) await esperar(4000 * (intento + 1));
   }
@@ -94,7 +131,7 @@ async function descargarVideo(url, destinoTemporal) {
 // sigue funcionando (mismo criterio de "no romper el despliegue").
 function comprimirVideo(origen, destinoFinal) {
   try {
-    execFileSync(
+    const salida = execFileSync(
       "ffmpeg",
       [
         "-y", "-i", origen,
@@ -104,29 +141,31 @@ function comprimirVideo(origen, destinoFinal) {
         "-movflags", "+faststart",
         destinoFinal,
       ],
-      { stdio: "pipe" }
+      { stdio: ["ignore", "pipe", "pipe"] }
     );
     fs.unlinkSync(origen);
     const pesoFinal = fs.statSync(destinoFinal).size;
-    console.log(`Video comprimido a ${(pesoFinal / 1024 / 1024).toFixed(1)} MB (listo para servir desde Hostinger).`);
+    registrar(`Video comprimido a ${(pesoFinal / 1024 / 1024).toFixed(1)} MB (listo para servir desde Hostinger).`);
   } catch (error) {
-    console.log("No se pudo comprimir el video (se sube el original, sin optimizar):", error.message);
+    registrar("No se pudo comprimir el video (se sube el original, sin optimizar). Error de ffmpeg:", error);
+    if (error.stderr) registrar("ffmpeg stderr (últimas líneas):", error.stderr.toString().split("\n").slice(-15).join("\n"));
     fs.renameSync(origen, destinoFinal);
   }
 }
 
 async function main() {
   if (!PASSWORD) {
-    console.log("Falta PRODUCCION_PASSWORD — se deja index.html sin cambios.");
+    registrar("Falta la variable de entorno PRODUCCION_PASSWORD (secreto de GitHub) — se deja index.html sin cambios.");
     return;
   }
+  registrar("PRODUCCION_PASSWORD presente, longitud:", PASSWORD.length);
 
   const confirmado = await pedirVideoDeHoy();
   if (!confirmado) {
-    console.log("El backend no devolvió un video válido hoy (tras varios intentos) — se deja index.html sin cambios.");
+    registrar("El backend no devolvió un video válido hoy (tras varios intentos) — se deja index.html sin cambios.");
     return;
   }
-  console.log("Video de hoy:", confirmado.url, "— fecha:", confirmado.fechaISO);
+  registrar("Video de hoy:", confirmado.url, "— fecha:", confirmado.fechaISO);
 
   const destino = path.join(CARPETA_VIDEO_LOCAL, ARCHIVO_VIDEO_LOCAL);
   const temporal = path.join(CARPETA_VIDEO_LOCAL, ARCHIVO_TEMPORAL);
@@ -134,10 +173,10 @@ async function main() {
   try {
     pesoBytes = await descargarVideo(confirmado.url, temporal);
   } catch (error) {
-    console.log("No se pudo descargar el video de hoy — se deja index.html sin cambios:", error.message);
+    registrar("No se pudo descargar el video de hoy — se deja index.html sin cambios:", error);
     return;
   }
-  console.log(`Video descargado a ${temporal} (${(pesoBytes / 1024 / 1024).toFixed(1)} MB, original de Pexels).`);
+  registrar(`Video descargado a ${temporal} (${(pesoBytes / 1024 / 1024).toFixed(1)} MB, original de Pexels).`);
   comprimirVideo(temporal, destino);
 
   let html = fs.readFileSync("index.html", "utf8");
@@ -145,7 +184,7 @@ async function main() {
   const patronFecha = /const VIDEO_PRECARGADO_FECHA = "[^"]*";/;
 
   if (!patronHoy.test(html) || !patronFecha.test(html)) {
-    console.log("No se encontraron las líneas VIDEO_PRECARGADO_HOY / VIDEO_PRECARGADO_FECHA en index.html — no se tocó nada.");
+    registrar("No se encontraron las líneas VIDEO_PRECARGADO_HOY / VIDEO_PRECARGADO_FECHA en index.html — no se tocó nada.");
     return;
   }
 
@@ -158,7 +197,9 @@ async function main() {
   html = html.replace(patronHoy, `const VIDEO_PRECARGADO_HOY = "${videoConCache}";`);
   html = html.replace(patronFecha, `const VIDEO_PRECARGADO_FECHA = "${confirmado.fechaISO}";`);
   fs.writeFileSync("index.html", html);
-  console.log("index.html actualizado con la copia local del video de hoy.");
+  registrar("index.html actualizado con la copia local del video de hoy.");
 }
 
-main();
+main()
+  .catch(error => registrar("ERROR NO CAPTURADO:", error))
+  .finally(escribirEstado);
