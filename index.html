@@ -1191,12 +1191,14 @@
     return elegido;
   }
 
-  // 1) Mostrar TEXTO y VIDEO de inmediato con la lista de respaldo — cero
-  // espera. Como ahora casi todos los días tienen un paisaje de Pexels
-  // distinto asignado, esperar al Sheet significaría pantalla negra todos
-  // los días — mejor mostrar algo ya, y si el real es distinto, se nota
-  // solo como un fundido suave (ver renderizarDia) cuando llegue.
-  renderizarDia(versiculosRespaldo, fondos, true);
+  // 1) Mostrar el TEXTO de inmediato con la lista de respaldo — cero
+  // espera. El VIDEO se deja quieto (de fondo, el color sólido de marca)
+  // hasta que el Sheet confirme cuál es el correcto: antes se "adivinaba"
+  // un video ya de una vez para no esperar, pero si el real resultaba
+  // distinto, la página descartaba a medias ese video y volvía a
+  // descargar el correcto desde cero — y eso se veía como una pantalla
+  // negra larga, peor que esperar un instante por el real una sola vez.
+  renderizarDia(versiculosRespaldo, fondos, false);
 
   // Interruptor de tema claro/oscuro. El tema por defecto es SIEMPRE
   // claro (no seguimos la preferencia del sistema) — solo cambia si la
