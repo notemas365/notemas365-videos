@@ -683,7 +683,7 @@
 </header>
 
 <section class="verse" id="top">
-  <video class="verse-video" id="verse-video" autoplay muted loop playsinline preload="metadata" crossorigin="anonymous"></video>
+  <video class="verse-video" id="verse-video" autoplay muted loop playsinline preload="metadata" crossorigin="anonymous" poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3Crect width='1' height='1' fill='%23011D3A'/%3E%3C/svg%3E"></video>
   <div class="verse-inner">
     <p class="verse-date" id="verse-date">&nbsp;</p>
     <blockquote id="verse-text">&nbsp;</blockquote>
@@ -1153,30 +1153,32 @@
         const yaHabiaVideo = !!verseVideo.src;
         const cambiar = () => {
           verseVideo.src = video;
-          const restaurarOpacidad = () => { verseVideo.style.opacity = "1"; };
+          verseVideo.play().catch(() => {});
+          // La miniatura (poster) ya se ve de fondo mientras el video
+          // carga, así que la opacidad vuelve a 1 de inmediato — ya NO
+          // esperamos al evento "canplay" para mostrarla, que era
+          // justo lo que dejaba la pantalla en negro varios segundos en
+          // conexiones lentas (el poster quedaba oculto detrás de la
+          // opacidad en 0 todo ese tiempo).
+          verseVideo.style.opacity = "1";
+
           let yaResuelto = false;
+          verseVideo.addEventListener("canplay", () => { yaResuelto = true; }, { once: true });
           const irAlRespaldo = () => {
             if (yaResuelto || verseVideo.src !== nuevaFuente) return;
             yaResuelto = true;
             verseVideo.src = fondos[indiceVideo];
             verseVideo.play().catch(() => {});
-            restaurarOpacidad();
           };
-          verseVideo.addEventListener("canplay", () => {
-            yaResuelto = true;
-            restaurarOpacidad();
-          }, { once: true });
           // Si el video realmente falla (URL rota, archivo borrado, etc.)
           // caemos al automático de inmediato.
           verseVideo.addEventListener("error", irAlRespaldo, { once: true });
           // Respaldo final por si se queda "colgado" sin cargar ni fallar
           // formalmente — generoso (conexiones móviles lentas son
           // normales) para no reemplazar un video válido solo porque
-          // tardó un poco más de la cuenta.
+          // tardó un poco más de la cuenta. Con el poster ya cubriendo
+          // la espera, esto casi nunca se nota aunque tarde.
           setTimeout(irAlRespaldo, 15000);
-          verseVideo.play().catch(() => {
-            restaurarOpacidad(); // si el autoplay falla, igual mostramos el fotograma
-          });
         };
         if (yaHabiaVideo) {
           verseVideo.style.opacity = "0";
