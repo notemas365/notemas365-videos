@@ -113,78 +113,40 @@ async function descargarVideo(url, destinoTemporal) {
 // que se veía como "pantalla negra / imagen fija que no reproduce".
 //
 // La solución real es REDUCIR el peso, no solo reordenar el archivo:
-//   - Reescalar a un ancho máximo de 1280px (de sobra para un fondo
-//     detrás de texto, que nunca se ve a pantalla completa en detalle).
+//   - Reescalar a un ancho máximo de 960px: en un celular (que es donde
+//     se ve la enorme mayoría de las visitas) no hace falta más —
+//     además, con el desenfoque de abajo, el detalle extra no se nota.
+//   - Desenfoque suave (gblur): un fondo detrás de texto no necesita
+//     verse nítido, y el desenfoque además hace que el video comprima
+//     MUCHÍSIMO mejor (menos detalle = menos información que guardar),
+//     así que ayuda doble: se ve bien y pesa menos.
 //   - Quitar el audio (-an): el <video> siempre se reproduce "muted", así
 //     que el audio original no sirve para nada y solo pesa.
-//   - Recodificar con calidad razonable (CRF 26 — visualmente casi
-//     idéntico para video de fondo, pero una fracción del peso).
-// Esto normalmente baja un archivo de decenas de MB a 2-6 MB.
+//   - Recodificar con CRF 28 (un poco más alto que lo normal — el
+//     desenfoque ya tapa casi cualquier artefacto de compresión).
+// Esto normalmente baja un archivo de decenas de MB a 1-4 MB.
 //
 // Se combina con "+faststart" (mueve el índice/"moov atom" al frente del
 // archivo) para que el navegador pueda arrancar a reproducir apenas
 // llegan los primeros bytes, en vez de esperar a tener el archivo
 // completo para ubicar ese índice.
 //
-// También se recorta a un loop de ~20 segundos (los videos de Pexels
-// suelen traer 30-45s, mucho más de lo necesario para un fondo en
-// bucle) usando un crossfade de 1 segundo entre el final y el inicio
-// ("seamless loop"): así, cuando el <video loop> reinicia, el último
-// instante ya se está mezclando visualmente con el primero, en vez de
-// dar un salto brusco. Esto además reduce más el peso del archivo.
+// NO se recorta la duración del video (se probó un loop de 20s con
+// crossfade, pero en videos bonitos se notaba el corte/la mezcla —
+// mejor mantener el metraje completo tal como lo eligió Daniel en
+// /produccion.html).
 //
 // Si ffmpeg no está disponible o la recodificación falla por algo, se
 // sube el archivo original tal cual se descargó — pesado, pero el sitio
 // sigue funcionando (mismo criterio de "no romper el despliegue").
-const DURACION_LOOP_SEG = 20;
-const DURACION_CROSSFADE_SEG = 1;
-
-function duracionVideo(archivo) {
-  const salida = execFileSync(
-    "ffprobe",
-    ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", archivo],
-    { stdio: ["ignore", "pipe", "pipe"] }
-  );
-  return parseFloat(salida.toString().trim());
-}
-
 function comprimirVideo(origen, destinoFinal) {
-  let duracionOriginal = null;
-  try {
-    duracionOriginal = duracionVideo(origen);
-    registrar(`Duración del video original: ${duracionOriginal.toFixed(1)}s.`);
-  } catch (error) {
-    registrar("No se pudo leer la duración con ffprobe (se recorta sin crossfade):", error);
-  }
-
-  // Solo armamos el loop con crossfade si el video es lo bastante largo
-  // (necesitamos al menos DURACION_LOOP_SEG completos de metraje). Si no,
-  // simplemente escalamos/comprimimos el video completo tal cual.
-  const alcanzaParaLoop = duracionOriginal && duracionOriginal >= DURACION_LOOP_SEG + 0.5;
-
-  const argsBase = ["-y", "-i", origen];
-  let argsFiltro;
-  if (alcanzaParaLoop) {
-    const principal = DURACION_LOOP_SEG - DURACION_CROSSFADE_SEG;
-    const filtro =
-      `[0:v]scale='min(1280,iw)':-2,split=3[s0][s1][s2];` +
-      `[s0]trim=0:${principal},setpts=PTS-STARTPTS[A];` +
-      `[s1]trim=${principal}:${DURACION_LOOP_SEG},setpts=PTS-STARTPTS[B];` +
-      `[s2]trim=0:${DURACION_CROSSFADE_SEG},setpts=PTS-STARTPTS[C];` +
-      `[B][C]xfade=transition=fade:duration=${DURACION_CROSSFADE_SEG}:offset=0[CROSS];` +
-      `[A][CROSS]concat=n=2:v=1:a=0[OUT]`;
-    argsFiltro = ["-filter_complex", filtro, "-map", "[OUT]"];
-  } else {
-    argsFiltro = ["-vf", "scale='min(1280,iw)':-2"];
-  }
-
   try {
     execFileSync(
       "ffmpeg",
       [
-        ...argsBase,
-        ...argsFiltro,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "26",
+        "-y", "-i", origen,
+        "-vf", "scale='min(960,iw)':-2,gblur=sigma=3",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "28",
         "-an",
         "-movflags", "+faststart",
         destinoFinal,
@@ -193,10 +155,7 @@ function comprimirVideo(origen, destinoFinal) {
     );
     fs.unlinkSync(origen);
     const pesoFinal = fs.statSync(destinoFinal).size;
-    registrar(
-      `Video comprimido a ${(pesoFinal / 1024 / 1024).toFixed(1)} MB` +
-      (alcanzaParaLoop ? ` — recortado a loop de ${DURACION_LOOP_SEG}s con crossfade.` : " (video completo, sin recorte de loop).")
-    );
+    registrar(`Video comprimido a ${(pesoFinal / 1024 / 1024).toFixed(1)} MB (960px, desenfocado, listo para servir desde Hostinger).`);
   } catch (error) {
     registrar("No se pudo comprimir el video (se sube el original, sin optimizar). Error de ffmpeg:", error);
     if (error.stderr) registrar("ffmpeg stderr (últimas líneas):", error.stderr.toString().split("\n").slice(-15).join("\n"));
