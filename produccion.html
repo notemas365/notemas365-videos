@@ -83,6 +83,8 @@
   summary.reflexion-label{cursor:pointer; user-select:none; margin-bottom:0; padding:2px 0;}
   details.reflexion-edit summary.reflexion-label{margin-bottom:8px;}
   .reflexion-toolbar{display:flex; align-items:center; gap:8px; margin-bottom:6px;}
+  .campo-encabezado{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;}
+  .campo-encabezado .reflexion-toolbar{margin-bottom:0;}
   .fmt-btn{
     background:#fff; border:1px solid #ddd; border-radius:6px; width:30px; height:30px;
     font-size:14px; cursor:pointer; color:#333; line-height:1;
@@ -431,24 +433,28 @@
           <div class="dia-fecha">${fechaCap}</div>
           <div class="dia-ref">${dia.referencia}</div>
           <div class="campo-edit" data-campo="versiculo">
-            <label class="reflexion-label">Versículo</label>
-            ${barraFormatoHTML()}
+            <div class="reflexion-label campo-encabezado">
+              <span>Versículo</span>
+              ${barraFormatoHTML()}
+            </div>
             <div class="reflexion-editor campo-editor" contenteditable="true">${prepararTextoParaEditor(dia.versiculo)}</div>
             <div class="reflexion-acciones">
               <button type="button" class="guardar-campo-btn">Guardar versículo</button>
               <span class="msg-campo"></span>
             </div>
           </div>
-          <details class="reflexion-edit" open>
-            <summary class="reflexion-label">Reflexión del día</summary>
-            <div class="campo-edit" data-campo="reflexion">
-              ${barraFormatoHTML()}
+          <details class="reflexion-edit campo-edit" data-campo="reflexion" open>
+            <summary class="reflexion-label">
+              <span class="campo-encabezado">
+                <span>Reflexión del día</span>
+                ${barraFormatoHTML()}
+              </span>
+            </summary>
               <div class="reflexion-editor campo-editor" contenteditable="true">${prepararTextoParaEditor(dia.reflexion)}</div>
               <div class="reflexion-acciones">
                 <button type="button" class="guardar-campo-btn">Guardar reflexión</button>
                 <span class="msg-campo"></span>
               </div>
-            </div>
           </details>
         </div>
         <div class="detalle-video">
@@ -558,6 +564,16 @@
       }
       editor.addEventListener("mouseup", guardarSeleccion);
       editor.addEventListener("keyup", guardarSeleccion);
+
+      // Cuando la barra de formato queda dentro del <summary> (caso de la
+      // reflexión, para ahorrar espacio junto al título), un clic en sus
+      // botones no debe además abrir/cerrar el desplegable — se corta la
+      // propagación antes de que le llegue al <summary>.
+      const toolbar = bloque.querySelector(".reflexion-toolbar");
+      if (toolbar) {
+        toolbar.addEventListener("click", (e) => e.stopPropagation());
+        toolbar.addEventListener("mousedown", (e) => e.stopPropagation());
+      }
 
       const btnNegrita = bloque.querySelector(".fmt-bold");
       btnNegrita.addEventListener("mousedown", (e) => e.preventDefault());
