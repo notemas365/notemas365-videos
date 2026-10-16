@@ -77,7 +77,7 @@
 
   .dia-fecha{font-weight:700; text-transform:capitalize; margin-bottom:2px;}
   .dia-ref{color:var(--dorado-texto); font-weight:600; margin-bottom:10px;}
-  .dia-versiculo{font-size:14px; color:#333; margin-bottom:14px; line-height:1.4;}
+  .campo-edit{margin-bottom:14px;}
   .reflexion-edit{margin-bottom:14px;}
   .reflexion-label{display:block; font-size:12px; font-weight:700; color:#888; margin-bottom:4px; text-transform:uppercase; letter-spacing:.03em;}
   summary.reflexion-label{cursor:pointer; user-select:none; margin-bottom:0; padding:2px 0;}
@@ -105,13 +105,13 @@
   .reflexion-editor:empty::before{content:"Escribe la reflexión…"; color:#aaa;}
   .reflexion-editor mark{background:inherit; padding:0 1px; border-radius:2px;}
   .reflexion-acciones{display:flex; align-items:center; gap:10px; margin-top:6px;}
-  .guardar-reflexion-btn{
+  .guardar-campo-btn{
     background:var(--azul); color:#fff; border:none;
     padding:9px 14px; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;
   }
-  .msg-reflexion{font-size:13px;}
-  .msg-reflexion.ok{color:var(--ok);}
-  .msg-reflexion.error{color:var(--error);}
+  .msg-campo{font-size:13px;}
+  .msg-campo.ok{color:var(--ok);}
+  .msg-campo.error{color:var(--error);}
   .preview-wrap{position:relative; margin-bottom:12px;}
   .preview-wrap img.preview,.preview-wrap video.preview-video{
     width:100%; aspect-ratio:16/10; height:auto; object-fit:cover; border-radius:10px;
@@ -430,20 +430,24 @@
         <div class="detalle-texto">
           <div class="dia-fecha">${fechaCap}</div>
           <div class="dia-ref">${dia.referencia}</div>
-          <div class="dia-versiculo">${dia.versiculo}</div>
+          <div class="campo-edit" data-campo="versiculo">
+            <label class="reflexion-label">Versículo</label>
+            ${barraFormatoHTML()}
+            <div class="reflexion-editor campo-editor" contenteditable="true">${prepararTextoParaEditor(dia.versiculo)}</div>
+            <div class="reflexion-acciones">
+              <button type="button" class="guardar-campo-btn">Guardar versículo</button>
+              <span class="msg-campo"></span>
+            </div>
+          </div>
           <details class="reflexion-edit" open>
             <summary class="reflexion-label">Reflexión del día</summary>
-            <div class="reflexion-toolbar">
-              <button type="button" class="fmt-btn fmt-bold" title="Negrita"><b>N</b></button>
-              <label class="fmt-color-label" title="Resaltar con color">
-                🖍️<input type="color" class="fmt-highlight-color" value="#FCE8B4">
-              </label>
-              <button type="button" class="fmt-btn fmt-clear" title="Quitar formato">✕</button>
-            </div>
-            <div class="reflexion-editor" contenteditable="true">${prepararReflexionParaEditor(dia.reflexion)}</div>
-            <div class="reflexion-acciones">
-              <button type="button" class="guardar-reflexion-btn">Guardar reflexión</button>
-              <span class="msg-reflexion"></span>
+            <div class="campo-edit" data-campo="reflexion">
+              ${barraFormatoHTML()}
+              <div class="reflexion-editor campo-editor" contenteditable="true">${prepararTextoParaEditor(dia.reflexion)}</div>
+              <div class="reflexion-acciones">
+                <button type="button" class="guardar-campo-btn">Guardar reflexión</button>
+                <span class="msg-campo"></span>
+              </div>
             </div>
           </details>
         </div>
@@ -523,68 +527,92 @@
       const url = input.value.trim();
       if (url) usarVideoPorUrl(url, dia.fila, dia.fechaISO);
     });
-    detalle.querySelector(".guardar-reflexion-btn").addEventListener("click", () => {
-      const html = sanitizarReflexionHtml(detalle.querySelector(".reflexion-editor").innerHTML);
-      guardarReflexion(dia.fila, html);
-    });
+    // --- Campos editables con formato (versículo y reflexión) -----------
+    // Los dos funcionan igual: una barra de negrilla/resaltar/quitar sobre
+    // un <div contenteditable>, y un botón que sanitiza y guarda. Se
+    // recorren juntos en vez de duplicar el cableado para cada uno.
+    detalle.querySelectorAll(".campo-edit").forEach((bloque) => {
+      const campo = bloque.dataset.campo; // "versiculo" | "reflexion"
+      const editor = bloque.querySelector(".campo-editor");
+      const msg = bloque.querySelector(".msg-campo");
+      const btnGuardar = bloque.querySelector(".guardar-campo-btn");
 
-    // --- Barra de formato (negrilla / resaltar con color) ---------------
-    // Trucos de contenteditable: hay que evitar que el navegador le quite
-    // el foco al editor cuando se hace clic en un botón de la barra (eso
-    // perdería la selección de texto que se quiere formatear), por eso
-    // los botones usan "mousedown" con preventDefault en vez de "click"
-    // para la parte de mantener el foco.
-    const editor = detalle.querySelector(".reflexion-editor");
-    let rangoGuardado = null;
-    function guardarSeleccion() {
-      const sel = window.getSelection();
-      if (sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
-        rangoGuardado = sel.getRangeAt(0).cloneRange();
+      // Trucos de contenteditable: hay que evitar que el navegador le
+      // quite el foco al editor cuando se hace clic en un botón de la
+      // barra (eso perdería la selección de texto que se quiere
+      // formatear), por eso los botones usan "mousedown" con
+      // preventDefault en vez de "click" para la parte de mantener el
+      // foco.
+      let rangoGuardado = null;
+      function guardarSeleccion() {
+        const sel = window.getSelection();
+        if (sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+          rangoGuardado = sel.getRangeAt(0).cloneRange();
+        }
       }
-    }
-    function restaurarSeleccion() {
-      if (!rangoGuardado) return;
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(rangoGuardado);
-    }
-    editor.addEventListener("mouseup", guardarSeleccion);
-    editor.addEventListener("keyup", guardarSeleccion);
-
-    const btnNegrita = detalle.querySelector(".fmt-bold");
-    btnNegrita.addEventListener("mousedown", (e) => e.preventDefault());
-    btnNegrita.addEventListener("click", () => {
-      editor.focus();
-      document.execCommand("bold");
-    });
-
-    const inputColor = detalle.querySelector(".fmt-highlight-color");
-    inputColor.addEventListener("mousedown", guardarSeleccion);
-    inputColor.addEventListener("input", () => {
-      editor.focus();
-      restaurarSeleccion();
-      // "hiliteColor" es el nombre estándar; algunos navegadores viejos
-      // solo entienden "backColor" — se intenta el primero y, si no
-      // hizo nada, se cae al segundo.
-      if (!document.execCommand("hiliteColor", false, inputColor.value)) {
-        document.execCommand("backColor", false, inputColor.value);
+      function restaurarSeleccion() {
+        if (!rangoGuardado) return;
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(rangoGuardado);
       }
-    });
+      editor.addEventListener("mouseup", guardarSeleccion);
+      editor.addEventListener("keyup", guardarSeleccion);
 
-    const btnQuitar = detalle.querySelector(".fmt-clear");
-    btnQuitar.addEventListener("mousedown", (e) => e.preventDefault());
-    btnQuitar.addEventListener("click", () => {
-      editor.focus();
-      document.execCommand("removeFormat");
+      const btnNegrita = bloque.querySelector(".fmt-bold");
+      btnNegrita.addEventListener("mousedown", (e) => e.preventDefault());
+      btnNegrita.addEventListener("click", () => {
+        editor.focus();
+        document.execCommand("bold");
+      });
+
+      const inputColor = bloque.querySelector(".fmt-highlight-color");
+      inputColor.addEventListener("mousedown", guardarSeleccion);
+      inputColor.addEventListener("input", () => {
+        editor.focus();
+        restaurarSeleccion();
+        // "hiliteColor" es el nombre estándar; algunos navegadores viejos
+        // solo entienden "backColor" — se intenta el primero y, si no
+        // hizo nada, se cae al segundo.
+        if (!document.execCommand("hiliteColor", false, inputColor.value)) {
+          document.execCommand("backColor", false, inputColor.value);
+        }
+      });
+
+      const btnQuitar = bloque.querySelector(".fmt-clear");
+      btnQuitar.addEventListener("mousedown", (e) => e.preventDefault());
+      btnQuitar.addEventListener("click", () => {
+        editor.focus();
+        document.execCommand("removeFormat");
+      });
+
+      btnGuardar.addEventListener("click", () => {
+        const html = sanitizarReflexionHtml(editor.innerHTML);
+        if (campo === "reflexion") guardarReflexion(dia.fila, html, msg);
+        else guardarVersiculo(dia.fila, html, msg);
+      });
     });
   }
 
-  // La Reflexión se guarda como HTML simple (negrilla / resaltado), pero
-  // los datos viejos son texto plano sin ninguna etiqueta. Si no se ve
-  // ninguna de las etiquetas que esta misma pantalla genera, se asume
-  // texto plano: se escapa y los saltos de línea se vuelven <br>, para
-  // que el editor los muestre igual que antes.
-  function prepararReflexionParaEditor(texto) {
+  // La barra de formato es idéntica para el versículo y la reflexión —
+  // se genera una sola vez y se repite en los dos bloques.
+  function barraFormatoHTML() {
+    return `
+      <div class="reflexion-toolbar">
+        <button type="button" class="fmt-btn fmt-bold" title="Negrita"><b>N</b></button>
+        <label class="fmt-color-label" title="Resaltar con color">
+          🖍️<input type="color" class="fmt-highlight-color" value="#FCE8B4">
+        </label>
+        <button type="button" class="fmt-btn fmt-clear" title="Quitar formato">✕</button>
+      </div>`;
+  }
+
+  // El versículo y la Reflexión se guardan como HTML simple (negrilla /
+  // resaltado), pero los datos viejos son texto plano sin ninguna
+  // etiqueta. Si no se ve ninguna de las etiquetas que esta misma
+  // pantalla genera, se asume texto plano: se escapa y los saltos de
+  // línea se vuelven <br>, para que el editor los muestre igual que antes.
+  function prepararTextoParaEditor(texto) {
     if (!texto) return "";
     const pareceHtml = /<(strong|b|mark|em|i|span|br|div)\b/i.test(texto);
     if (pareceHtml) return texto;
@@ -708,18 +736,34 @@
     }
   }
 
-  async function guardarReflexion(fila, reflexion) {
-    const msg = document.querySelector(".msg-reflexion");
-    if (msg) { msg.textContent = "Guardando…"; msg.className = "msg-reflexion"; }
+  async function guardarReflexion(fila, reflexion, msg) {
+    if (msg) { msg.textContent = "Guardando…"; msg.className = "msg-campo"; }
     try {
       const datos = await peticionConReintento(URL_BACKEND, {
         method: "POST",
         body: JSON.stringify({ password: PASSWORD, accion: "guardarReflexion", fila, reflexion }),
       });
       if (!datos.ok) throw new Error(datos.error || "Error al guardar la reflexión");
-      if (msg) { msg.textContent = "¡Guardado!"; msg.className = "msg-reflexion ok"; }
+      if (msg) { msg.textContent = "¡Guardado!"; msg.className = "msg-campo ok"; }
     } catch (e) {
-      if (msg) { msg.textContent = "No se pudo guardar: " + e.message; msg.className = "msg-reflexion error"; }
+      if (msg) { msg.textContent = "No se pudo guardar: " + e.message; msg.className = "msg-campo error"; }
+    }
+  }
+
+  // Análogo a guardarReflexion, para el texto del versículo. El backend
+  // (Apps Script) necesita la acción "guardarVersiculo" — ver nota en
+  // produccion-apps-script.gs / aviso a Daniel sobre este cambio.
+  async function guardarVersiculo(fila, versiculo, msg) {
+    if (msg) { msg.textContent = "Guardando…"; msg.className = "msg-campo"; }
+    try {
+      const datos = await peticionConReintento(URL_BACKEND, {
+        method: "POST",
+        body: JSON.stringify({ password: PASSWORD, accion: "guardarVersiculo", fila, versiculo }),
+      });
+      if (!datos.ok) throw new Error(datos.error || "Error al guardar el versículo");
+      if (msg) { msg.textContent = "¡Guardado!"; msg.className = "msg-campo ok"; }
+    } catch (e) {
+      if (msg) { msg.textContent = "No se pudo guardar: " + e.message; msg.className = "msg-campo error"; }
     }
   }
 
