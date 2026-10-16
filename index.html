@@ -1105,6 +1105,22 @@
   // se vea un versículo "equivocado" ni una pantalla vacía mientras
   // carga), y otra vez cuando el Google Sheet responde, por si trae
   // texto distinto (ej. una reflexión que editaste después).
+  // La Reflexión puede traer negrilla/resaltado como HTML simple (se edita
+  // así desde /produccion.html). Los datos viejos son texto plano sin
+  // ninguna etiqueta — si no se ve ninguna de las etiquetas que esa misma
+  // pantalla genera, se trata como texto plano: se escapa (por seguridad,
+  // ya que viene del Sheet) y los saltos de línea se vuelven <br>.
+  function prepararReflexionHTML(texto) {
+    if (!texto) return "";
+    const pareceHtml = /<(strong|b|mark|em|i|span|br|div)\b/i.test(texto);
+    if (pareceHtml) return texto;
+    return String(texto)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\n/g, "<br>");
+  }
+
   function renderizarDia(versiculos, fondos, actualizarVideo = true, esConfirmado = false) {
     const indiceVerso = ((diasTranscurridos % versiculos.length) + versiculos.length) % versiculos.length;
     const indiceVideo = ((diasTranscurridos % fondos.length) + fondos.length) % fondos.length;
@@ -1147,7 +1163,7 @@
     document.getElementById("verse-text").style.fontSize = tamano;
 
     document.getElementById("verse-ref").textContent = elegido.ref;
-    document.getElementById("reflexion-text").textContent = elegido.reflexion || "";
+    document.getElementById("reflexion-text").innerHTML = prepararReflexionHTML(elegido.reflexion);
 
     // Lo guardamos aparte para que el botón "Compartir" sepa si este día
     // tiene una imagen propia (subida desde /produccion.html) sin tener

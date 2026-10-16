@@ -116,7 +116,9 @@ async function descargarVideo(url, destinoTemporal) {
 //   - Reescalar a un ancho máximo de 960px: en un celular (que es donde
 //     se ve la enorme mayoría de las visitas) no hace falta más —
 //     además, con el desenfoque de abajo, el detalle extra no se nota.
-//   - Desenfoque suave (gblur): un fondo detrás de texto no necesita
+//   - Desenfoque suave (gblur, sigma=1.3 — no es un porcentaje, es el
+//     "radio" del desenfoque gaussiano; empezamos en 3 pero se notaba
+//     demasiado, así que se bajó): un fondo detrás de texto no necesita
 //     verse nítido, y el desenfoque además hace que el video comprima
 //     MUCHÍSIMO mejor (menos detalle = menos información que guardar),
 //     así que ayuda doble: se ve bien y pesa menos.
@@ -145,7 +147,7 @@ function comprimirVideo(origen, destinoFinal) {
       "ffmpeg",
       [
         "-y", "-i", origen,
-        "-vf", "scale='min(960,iw)':-2,gblur=sigma=3",
+        "-vf", "scale='min(960,iw)':-2,gblur=sigma=1.3",
         "-c:v", "libx264", "-preset", "fast", "-crf", "28",
         "-an",
         "-movflags", "+faststart",

@@ -82,10 +82,28 @@
   .reflexion-label{display:block; font-size:12px; font-weight:700; color:#888; margin-bottom:4px; text-transform:uppercase; letter-spacing:.03em;}
   summary.reflexion-label{cursor:pointer; user-select:none; margin-bottom:0; padding:2px 0;}
   details.reflexion-edit summary.reflexion-label{margin-bottom:8px;}
-  .reflexion-textarea{
-    width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px;
-    font-size:14px; font-family:inherit; color:#333; resize:vertical;
+  .reflexion-toolbar{display:flex; align-items:center; gap:8px; margin-bottom:6px;}
+  .fmt-btn{
+    background:#fff; border:1px solid #ddd; border-radius:6px; width:30px; height:30px;
+    font-size:14px; cursor:pointer; color:#333; line-height:1;
   }
+  .fmt-btn:hover{background:#f3f3f3;}
+  .fmt-btn.fmt-bold b{font-weight:800;}
+  .fmt-color-label{
+    display:inline-flex; align-items:center; gap:4px; font-size:16px; cursor:pointer;
+    border:1px solid #ddd; border-radius:6px; padding:3px 6px; background:#fff;
+  }
+  .fmt-color-label input[type="color"]{
+    width:20px; height:20px; padding:0; border:none; background:none; cursor:pointer;
+  }
+  .reflexion-editor{
+    width:100%; min-height:160px; max-height:420px; overflow-y:auto;
+    padding:10px 12px; border:1px solid #ddd; border-radius:8px;
+    font-size:14px; font-family:inherit; color:#333; line-height:1.5;
+    resize:vertical;
+  }
+  .reflexion-editor:empty::before{content:"Escribe la reflexión…"; color:#aaa;}
+  .reflexion-editor mark{background:inherit; padding:0 1px; border-radius:2px;}
   .reflexion-acciones{display:flex; align-items:center; gap:10px; margin-top:6px;}
   .guardar-reflexion-btn{
     background:var(--azul); color:#fff; border:none;
@@ -415,7 +433,14 @@
           <div class="dia-versiculo">${dia.versiculo}</div>
           <details class="reflexion-edit" open>
             <summary class="reflexion-label">Reflexión del día</summary>
-            <textarea class="reflexion-textarea" rows="4">${escapeHtml(dia.reflexion || "")}</textarea>
+            <div class="reflexion-toolbar">
+              <button type="button" class="fmt-btn fmt-bold" title="Negrita"><b>N</b></button>
+              <label class="fmt-color-label" title="Resaltar con color">
+                🖍️<input type="color" class="fmt-highlight-color" value="#FCE8B4">
+              </label>
+              <button type="button" class="fmt-btn fmt-clear" title="Quitar formato">✕</button>
+            </div>
+            <div class="reflexion-editor" contenteditable="true">${prepararReflexionParaEditor(dia.reflexion)}</div>
             <div class="reflexion-acciones">
               <button type="button" class="guardar-reflexion-btn">Guardar reflexión</button>
               <span class="msg-reflexion"></span>
@@ -499,9 +524,109 @@
       if (url) usarVideoPorUrl(url, dia.fila, dia.fechaISO);
     });
     detalle.querySelector(".guardar-reflexion-btn").addEventListener("click", () => {
-      const texto = detalle.querySelector(".reflexion-textarea").value;
-      guardarReflexion(dia.fila, texto);
+      const html = sanitizarReflexionHtml(detalle.querySelector(".reflexion-editor").innerHTML);
+      guardarReflexion(dia.fila, html);
     });
+
+    // --- Barra de formato (negrilla / resaltar con color) ---------------
+    // Trucos de contenteditable: hay que evitar que el navegador le quite
+    // el foco al editor cuando se hace clic en un botón de la barra (eso
+    // perdería la selección de texto que se quiere formatear), por eso
+    // los botones usan "mousedown" con preventDefault en vez de "click"
+    // para la parte de mantener el foco.
+    const editor = detalle.querySelector(".reflexion-editor");
+    let rangoGuardado = null;
+    function guardarSeleccion() {
+      const sel = window.getSelection();
+      if (sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
+        rangoGuardado = sel.getRangeAt(0).cloneRange();
+      }
+    }
+    function restaurarSeleccion() {
+      if (!rangoGuardado) return;
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(rangoGuardado);
+    }
+    editor.addEventListener("mouseup", guardarSeleccion);
+    editor.addEventListener("keyup", guardarSeleccion);
+
+    const btnNegrita = detalle.querySelector(".fmt-bold");
+    btnNegrita.addEventListener("mousedown", (e) => e.preventDefault());
+    btnNegrita.addEventListener("click", () => {
+      editor.focus();
+      document.execCommand("bold");
+    });
+
+    const inputColor = detalle.querySelector(".fmt-highlight-color");
+    inputColor.addEventListener("mousedown", guardarSeleccion);
+    inputColor.addEventListener("input", () => {
+      editor.focus();
+      restaurarSeleccion();
+      // "hiliteColor" es el nombre estándar; algunos navegadores viejos
+      // solo entienden "backColor" — se intenta el primero y, si no
+      // hizo nada, se cae al segundo.
+      if (!document.execCommand("hiliteColor", false, inputColor.value)) {
+        document.execCommand("backColor", false, inputColor.value);
+      }
+    });
+
+    const btnQuitar = detalle.querySelector(".fmt-clear");
+    btnQuitar.addEventListener("mousedown", (e) => e.preventDefault());
+    btnQuitar.addEventListener("click", () => {
+      editor.focus();
+      document.execCommand("removeFormat");
+    });
+  }
+
+  // La Reflexión se guarda como HTML simple (negrilla / resaltado), pero
+  // los datos viejos son texto plano sin ninguna etiqueta. Si no se ve
+  // ninguna de las etiquetas que esta misma pantalla genera, se asume
+  // texto plano: se escapa y los saltos de línea se vuelven <br>, para
+  // que el editor los muestre igual que antes.
+  function prepararReflexionParaEditor(texto) {
+    if (!texto) return "";
+    const pareceHtml = /<(strong|b|mark|em|i|span|br|div)\b/i.test(texto);
+    if (pareceHtml) return texto;
+    return escapeHtml(texto).replace(/\n/g, "<br>");
+  }
+
+  // Antes de guardar lo que quedó en el editor, se limpia cualquier
+  // etiqueta/atributo que no sea de la lista permitida — por si se pega
+  // contenido de otro lado (Word, otra página, etc.) con estilos raros
+  // que no queremos que terminen en el Sheet ni en la web pública.
+  function sanitizarReflexionHtml(html) {
+    const permitidas = new Set(["STRONG", "B", "EM", "I", "MARK", "SPAN", "BR", "DIV"]);
+    const contenedor = document.createElement("div");
+    contenedor.innerHTML = html;
+    (function limpiar(nodo) {
+      [...nodo.childNodes].forEach((hijo) => {
+        if (hijo.nodeType === 1) {
+          if (!permitidas.has(hijo.tagName)) {
+            while (hijo.firstChild) hijo.parentNode.insertBefore(hijo.firstChild, hijo);
+            hijo.parentNode.removeChild(hijo);
+            return;
+          }
+          [...hijo.attributes].forEach((attr) => {
+            if (attr.name.toLowerCase() !== "style") {
+              hijo.removeAttribute(attr.name);
+            } else {
+              const limpio = attr.value
+                .split(";")
+                .map((s) => s.trim())
+                .filter((s) => /^(color|background-color)\s*:/i.test(s))
+                .join("; ");
+              if (limpio) hijo.setAttribute("style", limpio);
+              else hijo.removeAttribute("style");
+            }
+          });
+          limpiar(hijo);
+        } else if (hijo.nodeType !== 3) {
+          hijo.parentNode.removeChild(hijo);
+        }
+      });
+    })(contenedor);
+    return contenedor.innerHTML;
   }
 
   // Recorta/ajusta cualquier foto que suban al formato vertical fijo que
