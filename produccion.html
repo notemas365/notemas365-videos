@@ -798,17 +798,33 @@
     }
   }
 
+  // TEMPORAL — medición de tiempos para diagnosticar la demora. Se muestra
+  // debajo del mensaje del detalle y en la consola del navegador.
+  function mostrarTiempos(accion, t0, t1, t2, t3) {
+    const f = (ms) => (ms / 1000).toFixed(1) + "s";
+    const texto = "⏱ " + accion + ": asignar " + f(t1 - t0) + " · aprobados " + f(t2 - t1) +
+      " · recargar día " + f(t3 - t2) + " · total " + f(t3 - t0);
+    console.log(texto);
+    const msg = document.querySelector("#detalle .msg");
+    if (msg) msg.textContent = (msg.textContent ? msg.textContent + "  " : "") + texto;
+  }
+
   async function pedirOtroPaisaje(fila, fechaISO) {
     mensajeDetalle("Buscando otro paisaje…");
     try {
+      const t0 = performance.now();
       const datos = await peticionConReintento(URL_BACKEND, {
         method: "POST", body: JSON.stringify({ password: PASSWORD, accion: "otro", fila, fechaISO }),
       });
+      const t1 = performance.now();
       if (!datos.ok) throw new Error(datos.error || "Error al buscar otro paisaje");
       await cargarAprobados(); // "otro" también quita la aprobación anterior
+      const t2 = performance.now();
       pintarCalendario();
       await seleccionarDia(fechaISO);
+      const t3 = performance.now();
       avisarSiRepetido(datos);
+      mostrarTiempos("otro", t0, t1, t2, t3);
     } catch (e) {
       mensajeDetalle("No se pudo cambiar: " + e.message, "error");
     }
@@ -817,14 +833,19 @@
   async function usarVideoPorUrl(url, fila, fechaISO) {
     mensajeDetalle("Buscando ese video en Pexels…");
     try {
+      const t0 = performance.now();
       const datos = await peticionConReintento(URL_BACKEND, {
         method: "POST", body: JSON.stringify({ password: PASSWORD, accion: "porUrl", fila, fechaISO, url }),
       });
+      const t1 = performance.now();
       if (!datos.ok) throw new Error(datos.error || "Error al usar ese video");
       await cargarAprobados(); // también quita la aprobación anterior
+      const t2 = performance.now();
       pintarCalendario();
       await seleccionarDia(fechaISO);
+      const t3 = performance.now();
       avisarSiRepetido(datos);
+      mostrarTiempos("porUrl", t0, t1, t2, t3);
     } catch (e) {
       mensajeDetalle("No se pudo usar ese video: " + e.message, "error");
     }
