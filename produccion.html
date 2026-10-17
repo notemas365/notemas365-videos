@@ -790,6 +790,14 @@
     msg.className = "msg" + (tipo ? " " + tipo : "");
   }
 
+  // El backend avisa (datos.repetido) si el video recién asignado ya lo
+  // usa otro versículo. Solo se avisa — la decisión es de Daniel.
+  function avisarSiRepetido(datos) {
+    if (datos && datos.repetido) {
+      mensajeDetalle("⚠️ Ojo: este video ya se usa en " + datos.repetido.referencia + " (fila " + datos.repetido.fila + "). Si no quieres repetirlo, pulsa otra vez.", "error");
+    }
+  }
+
   async function pedirOtroPaisaje(fila, fechaISO) {
     mensajeDetalle("Buscando otro paisaje…");
     try {
@@ -800,6 +808,7 @@
       await cargarAprobados(); // "otro" también quita la aprobación anterior
       pintarCalendario();
       await seleccionarDia(fechaISO);
+      avisarSiRepetido(datos);
     } catch (e) {
       mensajeDetalle("No se pudo cambiar: " + e.message, "error");
     }
@@ -815,6 +824,7 @@
       await cargarAprobados(); // también quita la aprobación anterior
       pintarCalendario();
       await seleccionarDia(fechaISO);
+      avisarSiRepetido(datos);
     } catch (e) {
       mensajeDetalle("No se pudo usar ese video: " + e.message, "error");
     }
