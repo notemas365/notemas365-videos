@@ -1111,10 +1111,23 @@
   // etiquetas que esa misma pantalla genera, se trata como texto plano:
   // se escapa (por seguridad, ya que viene del Sheet) y los saltos de
   // línea se vuelven <br>.
+  // El resaltado de color (<mark>, <span style="background-color…">) es solo
+  // una ayuda de referencia en /produccion.html y el Sheet: en el sitio y
+  // al compartir NO debe verse. Se quita el color y se conserva la negrilla.
+  function quitarResaltado(html) {
+    const plantilla = document.createElement("template"); // inerte: no ejecuta nada
+    plantilla.innerHTML = html;
+    plantilla.content.querySelectorAll("mark, span").forEach((el) => {
+      el.replaceWith(...el.childNodes); // quita la etiqueta, deja el texto
+    });
+    plantilla.content.querySelectorAll("[style]").forEach((el) => el.removeAttribute("style"));
+    return plantilla.innerHTML;
+  }
+
   function prepararTextoConFormato(texto) {
     if (!texto) return "";
     const pareceHtml = /<(strong|b|mark|em|i|span|br|div)\b/i.test(texto);
-    if (pareceHtml) return texto;
+    if (pareceHtml) return quitarResaltado(texto);
     return String(texto)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
