@@ -211,6 +211,22 @@
   .msg-imagen.ok{color:var(--ok);}
   .msg-imagen.error{color:var(--error);}
   .imagen-compartir-ayuda{font-size:12px; color:#999; margin-top:6px; line-height:1.4;}
+  .imagen-cuadrada{margin-top:18px; padding-top:14px; border-top:1px solid #eee;}
+  .imagen-cuadrada-fila{display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap;}
+  .imagen-cuadrada-preview, .imagen-cuadrada-vacia{
+    width:150px; box-sizing:border-box; border-radius:8px; flex:0 0 auto;
+  }
+  .imagen-cuadrada-vacia{height:150px;}
+  .imagen-cuadrada-preview{height:auto; max-height:220px; object-fit:contain; box-shadow:0 1px 4px rgba(0,0,0,.15);}
+  .imagen-cuadrada-vacia{
+    font-size:12px; color:#888; background:#f0f0f0; padding:10px; text-align:center;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .imagen-cuadrada-controles{flex:1 1 180px; min-width:0;}
+  .imagen-cuadrada-controles input[type=file]{font-size:13px; max-width:100%; margin-bottom:8px;}
+  .msg-cuadrada{font-size:13px;}
+  .msg-cuadrada.ok{color:var(--ok);}
+  .msg-cuadrada.error{color:var(--error);}
 </style>
 </head>
 <body>
@@ -473,6 +489,22 @@
                 <span class="msg-campo"></span>
               </div>
           </details>
+          <div class="imagen-cuadrada">
+            <label class="reflexion-label">Imagen cuadrada</label>
+            <div class="imagen-cuadrada-fila">
+              ${dia.imagenCuadrada
+                ? `<img class="imagen-cuadrada-preview" src="${dia.imagenCuadrada}" alt="Imagen cuadrada">`
+                : `<div class="imagen-cuadrada-vacia">Sin imagen cuadrada</div>`}
+              <div class="imagen-cuadrada-controles">
+                <input type="file" accept="image/*" class="imagen-cuadrada-input">
+                <div class="reflexion-acciones">
+                  <button type="button" class="subir-cuadrada-btn guardar-campo-btn">Subir imagen</button>
+                  <span class="msg-cuadrada"></span>
+                </div>
+                <div class="imagen-compartir-ayuda">Se sube con su proporción original, sin recortar (solo se comprime).</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="detalle-video">
           <div class="preview-wrap">
@@ -559,6 +591,21 @@
       const url = input.value.trim();
       if (url) usarVideoPorUrl(url, dia.fila, dia.fechaISO);
     });
+    // --- Imagen cuadrada (1080×1080) para redes ---------------------------
+    const bloqueCuadrada = detalle.querySelector(".imagen-cuadrada");
+    if (bloqueCuadrada) {
+      bloqueCuadrada.querySelector(".subir-cuadrada-btn").addEventListener("click", () => {
+        const archivo = bloqueCuadrada.querySelector(".imagen-cuadrada-input").files[0];
+        const msgC = bloqueCuadrada.querySelector(".msg-cuadrada");
+        if (!archivo) {
+          msgC.textContent = "Primero elige una imagen.";
+          msgC.className = "msg-cuadrada error";
+          return;
+        }
+        subirImagenCuadrada(dia.fila, archivo, bloqueCuadrada);
+      });
+    }
+
     // --- Copy para redes (texto plano, sin formato) -----------------------
     const bloqueCopy = detalle.querySelector(".copy-redes");
     if (bloqueCopy) {
@@ -723,19 +770,30 @@
   // usa la imagen de "Compartir la promesa de hoy" (estilo "cover", igual
   // que hace la propia web con el video de fondo) — así no toca acertarle
   // a la medida exacta, cualquier foto queda bien.
-  function recortarAFormatoCompartir(archivo) {
+  function recortarAFormatoCompartir(archivo, ancho, alto) {
     return new Promise((resolve, reject) => {
       const lector = new FileReader();
       lector.onload = () => {
         const img = new Image();
         img.onload = () => {
-          const W = 1080, H = 1920;
           const canvas = document.createElement("canvas");
-          canvas.width = W; canvas.height = H;
           const ctx = canvas.getContext("2d");
-          const escala = Math.max(W / img.width, H / img.height);
-          const iw = img.width * escala, ih = img.height * escala;
-          ctx.drawImage(img, (W - iw) / 2, (H - ih) / 2, iw, ih);
+          let W, H;
+          if (ancho && alto) {
+            // Formato fijo con recorte estilo "cover".
+            W = ancho; H = alto;
+            canvas.width = W; canvas.height = H;
+            const escala = Math.max(W / img.width, H / img.height);
+            const iw = img.width * escala, ih = img.height * escala;
+            ctx.drawImage(img, (W - iw) / 2, (H - ih) / 2, iw, ih);
+          } else {
+            // SIN recorte: se conserva la proporción original; solo se
+            // reduce si el lado mayor pasa de 1600 px.
+            const tope = Math.min(1, 1600 / Math.max(img.width, img.height));
+            W = Math.round(img.width * tope); H = Math.round(img.height * tope);
+            canvas.width = W; canvas.height = H;
+            ctx.drawImage(img, 0, 0, W, H);
+          }
 
           // Comprime en pasos hasta dejarla liviana. Una foto de celular
           // recortada a 1080×1920 con calidad alta puede pesar varios MB,
@@ -795,6 +853,35 @@
       if (msg) { msg.textContent = "No se pudo subir: " + e.message; msg.className = "msg-imagen error"; }
     } finally {
       if (boton) boton.disabled = false;
+    }
+  }
+
+  async function subirImagenCuadrada(fila, archivo, bloque) {
+    const msg = bloque.querySelector(".msg-cuadrada");
+    const boton = bloque.querySelector(".subir-cuadrada-btn");
+    msg.textContent = "Procesando imagen…"; msg.className = "msg-cuadrada";
+    boton.disabled = true;
+    try {
+      const recortada = await recortarAFormatoCompartir(archivo); // sin recorte
+      msg.textContent = "Subiendo…";
+      const base64 = await blobABase64(recortada);
+      const datos = await peticionConReintento(URL_BACKEND, {
+        method: "POST",
+        body: JSON.stringify({
+          password: PASSWORD, accion: "subirImagen", tipo: "cuadrada", fila,
+          datosBase64: base64, nombreArchivo: "imagen.jpg",
+        }),
+      });
+      if (!datos.ok) throw new Error(datos.error || "Error al subir la imagen");
+      msg.textContent = "¡Lista!"; msg.className = "msg-cuadrada ok";
+      const anterior = bloque.querySelector(".imagen-cuadrada-preview, .imagen-cuadrada-vacia");
+      if (anterior) {
+        anterior.outerHTML = `<img class="imagen-cuadrada-preview" src="${datos.url}" alt="Imagen cuadrada">`;
+      }
+    } catch (e) {
+      msg.textContent = "No se pudo subir: " + e.message; msg.className = "msg-cuadrada error";
+    } finally {
+      boton.disabled = false;
     }
   }
 
