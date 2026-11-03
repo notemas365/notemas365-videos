@@ -111,6 +111,17 @@
     background:var(--azul); color:#fff; border:none;
     padding:9px 14px; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;
   }
+  .copy-redes{margin-top:18px; padding-top:14px; border-top:1px solid #eee;}
+  .copy-redes textarea{
+    width:100%; box-sizing:border-box; min-height:130px; max-height:420px; resize:vertical;
+    padding:10px 12px; border:1px solid #ddd; border-radius:8px; font:inherit; line-height:1.5;
+  }
+  .copy-redes textarea:focus{outline:2px solid var(--dorado-texto); outline-offset:-1px;}
+  .copiar-copy-btn{
+    background:#fff; border:1px solid #ccc; border-radius:8px; padding:8px 14px;
+    font-weight:600; cursor:pointer; color:#333;
+  }
+  .copiar-copy-btn:hover{background:#f3f3f3;}
   .msg-campo{font-size:13px;}
   .msg-campo.ok{color:var(--ok);}
   .msg-campo.error{color:var(--error);}
@@ -415,6 +426,12 @@
     });
   }
 
+  // Para meter texto del Sheet dentro de un <textarea> sin que se interprete
+  // como HTML.
+  function escaparHTML(texto) {
+    return String(texto).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
   function pintarDetalle(dia) {
     const detalle = document.getElementById("detalle");
     const fechaCap = dia.fecha.charAt(0).toUpperCase() + dia.fecha.slice(1);
@@ -484,6 +501,15 @@
               <button type="submit">Usar este video</button>
             </form>
           </div>
+          <div class="copy-redes">
+            <label class="reflexion-label">Copy redes</label>
+            <textarea class="copy-redes-texto" placeholder="Escribe aquí el texto para publicar en redes…">${escaparHTML(dia.copyRedes || "")}</textarea>
+            <div class="reflexion-acciones">
+              <button type="button" class="guardar-campo-btn guardar-copy-btn">Guardar copy</button>
+              <button type="button" class="copiar-copy-btn">Copiar</button>
+              <span class="msg-campo"></span>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -533,6 +559,26 @@
       const url = input.value.trim();
       if (url) usarVideoPorUrl(url, dia.fila, dia.fechaISO);
     });
+    // --- Copy para redes (texto plano, sin formato) -----------------------
+    const bloqueCopy = detalle.querySelector(".copy-redes");
+    if (bloqueCopy) {
+      const areaCopy = bloqueCopy.querySelector(".copy-redes-texto");
+      const msgCopy = bloqueCopy.querySelector(".msg-campo");
+      bloqueCopy.querySelector(".guardar-copy-btn").addEventListener("click", () => {
+        guardarCopyRedes(dia.fila, areaCopy.value, msgCopy);
+      });
+      bloqueCopy.querySelector(".copiar-copy-btn").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(areaCopy.value);
+        } catch (e) {
+          areaCopy.select();
+          document.execCommand("copy");
+        }
+        msgCopy.textContent = "¡Copiado!";
+        msgCopy.className = "msg-campo ok";
+      });
+    }
+
     // --- Campos editables con formato (versículo y reflexión) -----------
     // Los dos funcionan igual: una barra de negrilla/resaltar/quitar sobre
     // un <div contenteditable>, y un botón que sanitiza y guarda. Se
@@ -769,6 +815,20 @@
   // Análogo a guardarReflexion, para el texto del versículo. El backend
   // (Apps Script) necesita la acción "guardarVersiculo" — ver nota en
   // produccion-apps-script.gs / aviso a Daniel sobre este cambio.
+  async function guardarCopyRedes(fila, copy, msg) {
+    if (msg) { msg.textContent = "Guardando…"; msg.className = "msg-campo"; }
+    try {
+      const datos = await peticionConReintento(URL_BACKEND, {
+        method: "POST",
+        body: JSON.stringify({ password: PASSWORD, accion: "guardarCopyRedes", fila, copy }),
+      });
+      if (!datos.ok) throw new Error(datos.error || "Error al guardar el copy");
+      if (msg) { msg.textContent = "¡Guardado!"; msg.className = "msg-campo ok"; }
+    } catch (e) {
+      if (msg) { msg.textContent = "No se pudo guardar: " + e.message; msg.className = "msg-campo error"; }
+    }
+  }
+
   async function guardarVersiculo(fila, versiculo, msg) {
     if (msg) { msg.textContent = "Guardando…"; msg.className = "msg-campo"; }
     try {
